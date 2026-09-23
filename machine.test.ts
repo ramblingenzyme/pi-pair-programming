@@ -4,6 +4,7 @@ import {
 	type PairSnapshot,
 	isApplyingRefinement,
 	isDiscussing,
+	isProposingRefinement,
 	isReadOnly,
 	pairMachine,
 	phaseOf,
@@ -164,5 +165,18 @@ describe("pairMachine", () => {
 		actor.send({ type: "PLAN" });
 		expect(phase(actor)).toBe("DESIGN");
 		expect(actor.getSnapshot().context.task).toBe("fix typo");
+	});
+
+	it("discusses a refinement proposal read-only, and agrees from the discussion", () => {
+		const actor = started();
+		actor.send({ type: "REFINE", task: "t" });
+		expect(isProposingRefinement(actor.getSnapshot())).toBe(true);
+		expect(isDiscussing(actor.getSnapshot())).toBe(false);
+		actor.send({ type: "DISCUSS" });
+		expect(isDiscussing(actor.getSnapshot())).toBe(true);
+		expect(isReadOnly(actor.getSnapshot())).toBe(true);
+		actor.send({ type: "AGREE" });
+		expect(isApplyingRefinement(actor.getSnapshot())).toBe(true);
+		expect(isDiscussing(actor.getSnapshot())).toBe(false);
 	});
 });

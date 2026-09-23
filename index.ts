@@ -7,12 +7,14 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { type Actor, createActor } from "xstate";
-import { type Decider, RuleDecider, SELF_REPORT } from "./decider.ts";
+import { type Decider, RuleDecider } from "./decider.ts";
 import { LlmDecider } from "./llm-decider.ts";
 import {
+	type PairEvent,
 	type PairSnapshot,
 	isApplyingRefinement,
 	isDiscussing,
+	isProposingRefinement,
 	isReadOnly,
 	pairMachine,
 	phaseOf,
@@ -37,7 +39,13 @@ const BANNER = "pair-phase-banner";
 const JUDGE_ENTRY = "pair-judge";
 const RESUME_TOOL = "resume_work";
 const CHECKPOINT_TOOL = "request_checkpoint";
-const DISCUSS_HINT = "Discussing the checkpoint. /continue resumes building, /done ends the task.";
+const DISCUSS_HINT = "Discussing. /continue moves on, /done ends the task.";
+// What "compression" means here. Without it the refine banners only name the word, and the model
+// fills it in with terseness or speculative abstraction.
+const COMPRESSION = `Compression here means semantic compression: removing duplication that already exists in the
+working code, so each piece says only what is unique to it. It is not making code shorter, and not adding
+abstractions for cases that do not exist yet. Measure it by the total cost to a reader and maintainer.`;
+const SELF_REPORT = /^\s*STATUS:\s*checkpoint-requested\s*$/im;
 
 export default function pairProgrammer(pi: ExtensionAPI) {
 	let actor: Actor<typeof pairMachine> = createActor(pairMachine);
@@ -70,6 +78,8 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 
 	const phase = () => phaseOf(actor.getSnapshot());
 	const context = () => actor.getSnapshot().context;
+	const bannerText = () => banner(actor.getSnapshot());
+	const bannerMessage = () => ({ customType: BANNER, content: bannerText(), display: false });
 
 	function applyPhase(snapshot: PairSnapshot): void {
 		const current = phaseOf(snapshot);
@@ -81,12 +91,74 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 			...(isApplyingRefinement(snapshot) ? [CHECKPOINT_TOOL] : []),
 		]);
 		const { effort } = snapshot.context;
-		const exit = current === "CHECKPOINT" ? " · /continue or /done" : "";
+		const exit = current === "CHECKPOINT" || isProposingRefinement(snapshot) ? " · /continue or /done" : "";
 		session?.ui.setStatus("pair", `${current}${effort ? ` · ${effort}` : ""}${exit}`);
 	}
 
 	function bannerEntry(): SessionBoundaryDraft {
-		return { type: "custom_message", customType: BANNER, content: banner(actor.getSnapshot()), display: false };
+		return { type: "custom_message", ...bannerMessage() };
+	}
+
+	function moveOn(event: PairEvent) {
+		actor.send(event);
+		return { entries: [bannerEntry()], continue: true };
+	}
+
+	// Each settle gate asks the human when the Decider cannot pass it, and returns the response
+	// that lets the agent continue, or nothing when the turn should stop here.
+	async function planGate(ctx: ExtensionContext, canSkip: (gate: "plan" | "finish") => Promise<boolean>) {
+		if (await canSkip("plan")) {
+			ctx.ui.notify("Plan auto-approved", "info");
+		} else {
+			if (!ctx.hasUI) return;
+			const choice = await ctx.ui.select("Plan ready?", ["Keep designing", "Approve and build"]);
+			if (choice !== "Approve and build") return;
+		}
+		return moveOn({ type: "APPROVE" });
+	}
+
+	// Agreeing what is worth compressing is the point of proposing, so it is always the user's call;
+	// offered once, like the checkpoint review, after which typing discusses and /continue agrees.
+	async function proposalGate(ctx: ExtensionContext) {
+		if (!ctx.hasUI || isDiscussing(actor.getSnapshot())) return;
+		const choice = await ctx.ui.select("Refinement agreed?", ["Keep discussing", "Agree and refine"]);
+		if (choice !== "Agree and refine") {
+			ctx.ui.notify(DISCUSS_HINT, "info");
+			return;
+		}
+		return moveOn({ type: "AGREE" });
+	}
+
+	/** True when the finish gate auto-ended the task, so settling stops here rather than checkpointing. */
+	async function finishGate(
+		ctx: ExtensionContext,
+		canSkip: (gate: "plan" | "finish") => Promise<boolean>,
+	): Promise<boolean> {
+		if (!(await canSkip("finish"))) return false;
+		ctx.ui.notify("Task auto-finished", "info");
+		actor.send({ type: "DONE" });
+		return true;
+	}
+
+	// Offered once per checkpoint; typing moves to discuss (see the input hook), after which the
+	// selector stays away so the conversation can run; /continue and /done leave.
+	async function checkpointMenu(ctx: ExtensionContext) {
+		if (phase() !== "CHECKPOINT" || isDiscussing(actor.getSnapshot()) || !ctx.hasUI) return;
+		const continueLabel = context().refining ? "Continue refining" : "Continue building";
+		const choice = await ctx.ui.select("Checkpoint review", [
+			"Discuss",
+			continueLabel,
+			"Propose refinements",
+			"Task done",
+		]);
+		if (choice === continueLabel || choice === "Propose refinements") {
+			return moveOn({ type: choice === continueLabel ? "CONTINUE" : "REFINE" });
+		}
+		if (choice === "Task done") {
+			actor.send({ type: "DONE" });
+			return;
+		}
+		ctx.ui.notify(DISCUSS_HINT, "info");
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -113,8 +185,11 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 		lastUserText = event.text;
 		if (phase() === "IDLE") {
 			actor.send({ type: "TASK", task: event.text, effort: await decider.classifyEffort(event.text) });
-		} else if (phase() === "CHECKPOINT" && !isDiscussing(actor.getSnapshot())) {
-			// Typing at a checkpoint is discussing it, however the user got here (Esc, resume, or never chose).
+		} else if (
+			(phase() === "CHECKPOINT" || isProposingRefinement(actor.getSnapshot())) &&
+			!isDiscussing(actor.getSnapshot())
+		) {
+			// Typing at a checkpoint or proposal is discussing it, however the user got here (Esc, resume, never chose).
 			actor.send({ type: "DISCUSS" });
 			ctx.ui.notify(DISCUSS_HINT, "info");
 		}
@@ -122,7 +197,7 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 
 	pi.on("before_agent_start", async () => {
 		if (!context().task) return;
-		return { message: { customType: BANNER, content: banner(actor.getSnapshot()), display: false } };
+		return { message: bannerMessage() };
 	});
 
 	pi.on("tool_call", async (event, ctx) => {
@@ -145,15 +220,16 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 		if (isThrashing(new Map(context().writesPerFile))) {
 			return { block: true, reason: "Checkpoint required before further writes." };
 		}
-		actor.send({ type: "WRITE", path: (event.input as { path: string }).path });
+		if (phase() === "BUILD") {
+			actor.send({ type: "WRITE", path: (event.input as { path: string }).path });
+		}
 	});
 
 	pi.on("turn_end", async (event) => {
 		// Refining must not change behaviour, so a failure there is a bug, not something to fix forward:
 		// the reverse of BUILD, where a failure means the agent is mid-fix (see midRunCheckpoint).
 		if (isApplyingRefinement(actor.getSnapshot()) && event.toolResults.some((r) => r.isError)) {
-			actor.send({ type: "CHECKPOINT" });
-			return { entries: [bannerEntry()], continue: true };
+			return moveOn({ type: "CHECKPOINT" });
 		}
 		const { task, writesPerFile } = context();
 		// A turn without tool calls is the agent finishing; agent_before_settle reviews that.
@@ -177,18 +253,18 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 		) {
 			return;
 		}
-		actor.send({ type: "CHECKPOINT" });
-		return { entries: [bannerEntry()], continue: true };
+		return moveOn({ type: "CHECKPOINT" });
 	});
 
-	// Human gates: DESIGN → BUILD and a settled BUILD → done. The Decider may pass a gate on clear
-	// cases that deciderMayPass allows; otherwise a person decides. A BUILD run that settles on its own is
-	// finished work, so it gets the checkpoint review directly: its final message already is the summary.
+	// Human gates: what settling means depends on the phase. DESIGN and a refinement proposal end
+	// with a human gate before the agent resumes; settling mid-run lands at a checkpoint review.
+	// The Decider may pass a gate deciderMayPass allows; a BUILD run that settles on its own skips
+	// its gate. The checkpoint menu is offered at most once per checkpoint.
 	pi.on("agent_before_settle", async (event, ctx) => {
 		const { task, effort, writesPerFile } = context();
 		if (event.outcome !== "completed" || !task) return;
-		const counts = new Map(writesPerFile);
 		// A refinement started from IDLE has no effort: nothing about it was classified, so nothing auto-passes.
+		const counts = new Map(writesPerFile);
 		const canSkip = async (gate: "plan" | "finish") =>
 			effort !== undefined &&
 			deciderMayPass(gate, effort, counts) &&
@@ -200,65 +276,27 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 				lastAssistantText: lastAssistantText(event.context.contextMessages),
 			}));
 
-		if (phase() === "DESIGN") {
-			if (await canSkip("plan")) {
-				ctx.ui.notify("Plan auto-approved", "info");
-			} else {
-				if (!ctx.hasUI) return;
-				const choice = await ctx.ui.select("Plan ready?", ["Keep designing", "Approve and build"]);
-				if (choice !== "Approve and build") return;
-			}
-			actor.send({ type: "APPROVE" });
-			return { entries: [bannerEntry()], continue: true };
-		}
+		// Turn-ending gates: each returns the continue response when approved, nothing when not.
+		if (phase() === "DESIGN") return planGate(ctx, canSkip);
+		if (isProposingRefinement(actor.getSnapshot())) return proposalGate(ctx);
 
-		// Agreeing what is worth compressing is the point of proposing, so it is always the user's call.
-		if (phase() === "REFINE" && !isApplyingRefinement(actor.getSnapshot())) {
-			if (!ctx.hasUI) return;
-			const choice = await ctx.ui.select("Refinement agreed?", ["Keep discussing", "Agree and refine"]);
-			if (choice !== "Agree and refine") return;
-			actor.send({ type: "AGREE" });
-			return { entries: [bannerEntry()], continue: true };
-		}
-
-		if (phase() === "REFINE") actor.send({ type: "CHECKPOINT" });
-
-		if (phase() === "BUILD") {
-			if (await canSkip("finish")) {
-				ctx.ui.notify("Task auto-finished", "info");
-				actor.send({ type: "DONE" });
-				return;
-			}
+		// Mid-run work lands at a checkpoint, so the agent pauses for review; BUILD may end the whole
+		// task instead when its finish gate auto-approves. The checkpoint menu follows either way.
+		if (phase() === "REFINE" && isApplyingRefinement(actor.getSnapshot())) {
+			actor.send({ type: "CHECKPOINT" });
+		} else if (phase() === "BUILD") {
+			if (await finishGate(ctx, canSkip)) return;
 			actor.send({ type: "CHECKPOINT" });
 		}
 
-		// Offered once per checkpoint. Typing a message moves to discuss (see the input hook), after which
-		// the selector stays away so the conversation can run; /continue and /done leave.
-		if (phase() === "CHECKPOINT" && !isDiscussing(actor.getSnapshot()) && ctx.hasUI) {
-			const continueLabel = context().refining ? "Continue refining" : "Continue building";
-			const choice = await ctx.ui.select("Checkpoint review", [
-				"Discuss",
-				continueLabel,
-				"Propose refinements",
-				"Task done",
-			]);
-			if (choice === continueLabel || choice === "Propose refinements") {
-				actor.send({ type: choice === continueLabel ? "CONTINUE" : "REFINE" });
-				return { entries: [bannerEntry()], continue: true };
-			}
-			if (choice === "Task done") {
-				actor.send({ type: "DONE" });
-				return;
-			}
-			ctx.ui.notify(DISCUSS_HINT, "info");
-		}
+		return checkpointMenu(ctx);
 	});
 
 	// Compaction can drop the per-prompt banner; the phase itself is unaffected.
 	// ponytail: compaction runs pi's default summary. Deciding what is safe to forget means returning
 	// a custom CompactionResult from session_before_compact via a Decider call — the Jev-era slice.
 	pi.on("session_compact", async () => {
-		if (context().task) pi.sendMessage({ customType: BANNER, content: banner(actor.getSnapshot()), display: false });
+		if (context().task) pi.sendMessage(bannerMessage());
 	});
 
 	pi.registerCommand("phase", {
@@ -275,23 +313,24 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 		name: RESUME_TOOL,
 		label: "Resume work",
 		description:
-			"Propose leaving the checkpoint discussion to resume building or refining. Call only when the user has asked to continue. The user must confirm.",
+			"Propose leaving the discussion to move on: resume building or refining after a checkpoint, or start the agreed refinement. Call only when the user has asked to go on. The user must confirm.",
 		parameters: Type.Object({
-			reason: Type.String({ description: "What the user said that asks to resume" }),
+			reason: Type.String({ description: "What the user said that asks to go on" }),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			if (!isDiscussing(actor.getSnapshot())) throw new Error("Not in a checkpoint discussion.");
+			if (!isDiscussing(actor.getSnapshot())) throw new Error("Not in a discussion.");
 			if (!ctx.hasUI) throw new Error("No one can confirm here; stay in the discussion.");
+			const proposing = isProposingRefinement(actor.getSnapshot());
 			const confirmed = await ctx.ui.confirm(
-				context().refining ? "Resume refining?" : "Resume building?",
+				proposing ? "Start the agreed refinement?" : context().refining ? "Resume refining?" : "Resume building?",
 				`You said: "${lastUserText}"\n\nAgent's reading: ${params.reason}`,
 			);
 			if (!confirmed) {
-				const text = "The user did not confirm. Stay in the discussion; do not propose resuming again unless they ask.";
+				const text = "The user did not confirm. Stay in the discussion; do not propose moving on again unless they ask.";
 				return { content: [{ type: "text", text }], details: undefined };
 			}
-			actor.send({ type: "CONTINUE" });
-			return { content: [{ type: "text", text: banner(actor.getSnapshot()) }], details: undefined };
+			actor.send({ type: proposing ? "AGREE" : "CONTINUE" });
+			return { content: [{ type: "text", text: bannerText() }], details: undefined };
 		},
 	});
 
@@ -307,19 +346,22 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 		async execute() {
 			if (!isApplyingRefinement(actor.getSnapshot())) throw new Error("Not refining.");
 			actor.send({ type: "CHECKPOINT" });
-			return { content: [{ type: "text", text: banner(actor.getSnapshot()) }], details: undefined };
+			return { content: [{ type: "text", text: bannerText() }], details: undefined };
 		},
 	});
 
 	pi.registerCommand("continue", {
-		description: "Leave a checkpoint and resume building or refining",
+		description: "Move on: leave a checkpoint to resume work, or agree a refinement proposal",
 		handler: async (_args, ctx) => {
-			if (phase() !== "CHECKPOINT") {
+			if (isProposingRefinement(actor.getSnapshot())) {
+				actor.send({ type: "AGREE" });
+			} else if (phase() === "CHECKPOINT") {
+				actor.send({ type: "CONTINUE" });
+			} else {
 				ctx.ui.notify(`Nothing to continue: phase is ${phase()}`, "info");
 				return;
 			}
-			actor.send({ type: "CONTINUE" });
-			pi.sendMessage({ customType: BANNER, content: banner(actor.getSnapshot()), display: false }, { triggerTurn: true });
+			pi.sendMessage(bannerMessage(), { triggerTurn: true });
 		},
 	});
 
@@ -339,7 +381,7 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 				ctx.ui.notify(`Planning starts between tasks or at a checkpoint, not during ${phase()}`, "info");
 				return;
 			}
-			pi.sendMessage({ customType: BANNER, content: banner(actor.getSnapshot()), display: false }, { triggerTurn: true });
+			pi.sendMessage(bannerMessage(), { triggerTurn: true });
 		},
 	});
 
@@ -355,13 +397,17 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 				ctx.ui.notify(`Refining starts between tasks or at a checkpoint, not during ${phase()}`, "info");
 				return;
 			}
-			pi.sendMessage({ customType: BANNER, content: banner(actor.getSnapshot()), display: false }, { triggerTurn: true });
+			pi.sendMessage(bannerMessage(), { triggerTurn: true });
 		},
 	});
 
 	pi.registerCommand("done", {
 		description: "End the current task; the next prompt starts a new one",
-		handler: async () => {
+		handler: async (_args, ctx) => {
+			if (phase() === "IDLE") {
+				ctx.ui.notify("No active task to end.", "info");
+				return;
+			}
 			actor.send({ type: "DONE" });
 		},
 	});
@@ -392,11 +438,20 @@ Stop building. Edit and write tools are removed. Summarize for review: what chan
 		case "REFINE":
 			if (isApplyingRefinement(snapshot)) {
 				return `[PHASE: REFINE]${taskLine}
+${COMPRESSION}
 Carry out the refinement agreed with the user. It must not change behaviour. Work in rounds you can verify,
 running the tests after each. Call ${CHECKPOINT_TOOL} when a round is done, or as soon as anything fails;
 do not fix a failure forward.`;
 			}
+			if (isDiscussing(snapshot)) {
+				return `[PHASE: REFINE — DISCUSSING THE PROPOSAL]${taskLine}
+${COMPRESSION}
+The proposal has been given. The user is discussing it with you: answer, revise the proposal where they
+push back, but do not repeat it whole. Edit and write tools are removed; bash is read-only. If the user
+agrees to go ahead, call ${RESUME_TOOL}; the user confirms before anything changes.`;
+			}
 			return `[PHASE: REFINE — PROPOSE]${taskLine}
+${COMPRESSION}
 Edit and write tools are removed; bash is read-only. Look at the code as it stands and propose what, if
 anything, is worth compressing and why, and what you would leave alone. Then stop and wait: the user and
 you agree on what to change before anything changes.`;

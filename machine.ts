@@ -78,7 +78,7 @@ export const pairMachine = setup({
 					},
 					states: {
 						review: { on: { DISCUSS: "discuss" } },
-						discuss: {},
+						discuss: { tags: "discussing" },
 					},
 				},
 				// Behaviour-preserving compression. It starts by agreeing what is worth compressing.
@@ -86,7 +86,15 @@ export const pairMachine = setup({
 					entry: "enterRefine",
 					initial: "propose",
 					states: {
-						propose: { tags: "readOnly", on: { AGREE: "apply" } },
+						propose: {
+							tags: "readOnly",
+							initial: "review",
+							on: { AGREE: "apply" },
+							states: {
+								review: { on: { DISCUSS: "discuss" } },
+								discuss: { tags: "discussing" },
+							},
+						},
 						apply: { on: { CHECKPOINT: "#pair.task.CHECKPOINT" } },
 					},
 				},
@@ -111,8 +119,13 @@ export function isApplyingRefinement(snapshot: PairSnapshot): boolean {
 	return snapshot.matches({ task: { REFINE: "apply" } });
 }
 
+/** Talking over a checkpoint or a refinement proposal, after the one-time selector. */
 export function isDiscussing(snapshot: PairSnapshot): boolean {
-	return snapshot.matches({ task: { CHECKPOINT: "discuss" } });
+	return snapshot.hasTag("discussing");
+}
+
+export function isProposingRefinement(snapshot: PairSnapshot): boolean {
+	return snapshot.matches({ task: { REFINE: "propose" } });
 }
 
 /**

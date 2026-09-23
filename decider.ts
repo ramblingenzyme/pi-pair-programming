@@ -32,8 +32,6 @@ export interface ReviewSignals {
 	lastAssistantText: string;
 }
 
-export const SELF_REPORT = /^\s*STATUS:\s*checkpoint-requested\s*$/im;
-
 const FILE_PATH = /[\w./-]+\.(?:[cm]?[jt]sx?|py|go|rs|rb|java|md|json|ya?ml|toml|css|html|sh)\b/g;
 
 // ponytail: keyword/length heuristics standing in for Jev. Replace with a JevDecider
