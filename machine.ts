@@ -1,6 +1,15 @@
 import { assign, setup, type SnapshotFrom } from "xstate";
 import type { Effort, Phase } from "./rules.ts";
 
+export const RESUME_TOOL = "resume_work";
+export const CHECKPOINT_TOOL = "request_checkpoint";
+const BANNER = "pair-phase-banner";
+// What "compression" means here. Without it the refine banners only name the word, and the model
+// fills it in with terseness or speculative abstraction.
+const COMPRESSION = `Compression here means semantic compression: removing duplication that already exists in the
+working code, so each piece says only what is unique to it. It is not making code shorter, and not adding
+abstractions for cases that do not exist yet. Measure it by the total cost to a reader and maintainer.`;
+
 export interface PairContext {
 	task?: string;
 	effort?: Effort;
@@ -126,6 +135,57 @@ export function isDiscussing(snapshot: PairSnapshot): boolean {
 
 export function isProposingRefinement(snapshot: PairSnapshot): boolean {
 	return snapshot.matches({ task: { REFINE: "propose" } });
+}
+
+export function banner(snapshot: PairSnapshot): string {
+	const { task, effort } = snapshot.context;
+	const taskLine = task ? `\nTask: ${task}` : "";
+	switch (phaseOf(snapshot)) {
+		case "DESIGN":
+			return `[PHASE: DESIGN]${taskLine}
+Edit and write tools are removed; bash is read-only. ${
+				effort === "complex" ? "Explore the affected code thoroughly before proposing anything. " : ""
+			}Produce a concrete plan: files to change, what changes, how you will verify. Then stop and wait for approval.`;
+		case "BUILD":
+			return `[PHASE: BUILD]${taskLine}
+Implement the approved plan. If you reach a point where a human should look before you continue, end your message with the line:
+STATUS: checkpoint-requested`;
+		case "CHECKPOINT":
+			if (isDiscussing(snapshot)) {
+				return `[PHASE: CHECKPOINT — DISCUSSION]${taskLine}
+The review summary has been given. The user is now discussing the work with you: answer their questions and
+talk through changes, but do not repeat the summary. Edit and write tools are removed; bash is read-only.
+If the user asks to resume work, call ${RESUME_TOOL}; the user confirms before anything changes.`;
+			}
+			return `[PHASE: CHECKPOINT]${taskLine}
+Stop building. Edit and write tools are removed. Summarize for review: what changed and where, what is verified and how, what is still open. Do not continue work until the user responds.`;
+		case "REFINE":
+			if (isApplyingRefinement(snapshot)) {
+				return `[PHASE: REFINE]${taskLine}
+${COMPRESSION}
+Carry out the refinement agreed with the user. It must not change behaviour. Work in rounds you can verify,
+running the tests after each. Call ${CHECKPOINT_TOOL} when a round is done, or as soon as anything fails;
+do not fix a failure forward.`;
+			}
+			if (isDiscussing(snapshot)) {
+				return `[PHASE: REFINE — DISCUSSING THE PROPOSAL]${taskLine}
+${COMPRESSION}
+The proposal has been given. The user is discussing it with you: answer, revise the proposal where they
+push back, but do not repeat it whole. Edit and write tools are removed; bash is read-only. If the user
+agrees to go ahead, call ${RESUME_TOOL}; the user confirms before anything changes.`;
+			}
+			return `[PHASE: REFINE — PROPOSE]${taskLine}
+${COMPRESSION}
+Edit and write tools are removed; bash is read-only. Look at the code as it stands and propose what, if
+anything, is worth compressing and why, and what you would leave alone. Then stop and wait: the user and
+you agree on what to change before anything changes.`;
+		case "IDLE":
+			return "[PHASE: IDLE]";
+	}
+}
+
+export function bannerMessage(snapshot: PairSnapshot) {
+	return { customType: BANNER, content: banner(snapshot), display: false };
 }
 
 /**
