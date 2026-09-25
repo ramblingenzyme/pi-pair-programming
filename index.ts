@@ -5,19 +5,20 @@ import {
 	type SessionBoundaryDraft,
 	isToolCallEventType,
 } from "@earendil-works/pi-coding-agent";
-import { type Actor, createActor } from "xstate";
 import { registerCommands, registerTools } from "./commands.ts";
 import { type Decider, RuleDecider } from "./decider.ts";
+import { buildFooter } from "./footer.ts";
 import { LlmDecider } from "./llm-decider.ts";
 import {
+	type PairActor,
 	type PairEvent,
 	type PairSnapshot,
+	PairActorImpl,
 	bannerMessage,
 	isApplyingRefinement,
 	isDiscussing,
 	isProposingRefinement,
 	isReadOnly,
-	pairMachine,
 	phaseOf,
 	restorable,
 	CHECKPOINT_TOOL,
@@ -43,9 +44,10 @@ const DISCUSS_HINT = "Discussing. /continue moves on, /done ends the task.";
 const SELF_REPORT = /^\s*STATUS:\s*checkpoint-requested\s*$/im;
 
 export default function pairProgrammer(pi: ExtensionAPI) {
-	let actor: Actor<typeof pairMachine> = createActor(pairMachine);
+	const actor: PairActor = new PairActorImpl();
 	let session: ExtensionContext | undefined;
 	let lastUserText = "";
+	let footerRequestRender: (() => void) | undefined;
 
 	pi.registerFlag("pair-rules", {
 		description: `Use keyword rules instead of ${JUDGE.model} for pair-programmer judgment calls`,
@@ -85,9 +87,8 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 			...(isDiscussing(snapshot) ? [RESUME_TOOL] : []),
 			...(isApplyingRefinement(snapshot) ? [CHECKPOINT_TOOL] : []),
 		]);
-		const { effort } = snapshot.context;
-		const exit = current === "CHECKPOINT" || isProposingRefinement(snapshot) ? " · /continue or /done" : "";
-		session?.ui.setStatus("pair", `${current}${effort ? ` · ${effort}` : ""}${exit}`);
+		// Trigger footer re-render to reflect phase change
+		footerRequestRender?.();
 	}
 
 	function bannerEntry(): SessionBoundaryDraft {
@@ -150,8 +151,7 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 			.getBranch()
 			.filter((e) => e.type === "custom" && e.customType === STATE_ENTRY)
 			.pop() as { data?: PairSnapshot } | undefined;
-		actor.stop();
-		actor = createActor(pairMachine, { snapshot: restorable(saved?.data) });
+		actor.reset(restorable(saved?.data));
 		let lastMode: string | undefined;
 		actor.subscribe((snapshot) => {
 			pi.appendEntry(STATE_ENTRY, actor.getPersistedSnapshot());
@@ -161,6 +161,11 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 			applyPhase(snapshot);
 		});
 		actor.start();
+
+		// Install custom footer
+		const { factory, requestRender } = buildFooter(actor, ctx);
+		footerRequestRender = requestRender;
+		ctx.ui.setFooter(factory);
 	});
 
 	pi.on("input", async (event, ctx) => {

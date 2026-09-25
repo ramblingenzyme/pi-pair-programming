@@ -1,11 +1,10 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { Actor } from "xstate";
 import type { Decider } from "./decider.ts";
 import {
+	type PairActor,
 	type PairContext,
 	type PairSnapshot,
-	type pairMachine,
 	banner,
 	bannerMessage,
 	isDiscussing,
@@ -18,7 +17,7 @@ import type { Phase } from "./rules.ts";
 
 export function registerCommands(
 	pi: ExtensionAPI,
-	actor: Actor<typeof pairMachine>,
+	actor: PairActor,
 	decider: Decider,
 ): void {
 	const phase = () => phaseOf(actor.getSnapshot());
@@ -119,7 +118,7 @@ export function registerCommands(
 
 export function registerTools(
 	pi: ExtensionAPI,
-	actor: Actor<typeof pairMachine>,
+	actor: PairActor,
 	lastUserText: () => string,
 ): void {
 	const context = () => actor.getSnapshot().context;

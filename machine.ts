@@ -1,4 +1,4 @@
-import { assign, setup, type SnapshotFrom } from "xstate";
+import { assign, createActor, setup, type Actor, type SnapshotFrom, type Subscription } from "xstate";
 import type { Effort, Phase } from "./rules.ts";
 
 export const RESUME_TOOL = "resume_work";
@@ -113,6 +113,84 @@ export const pairMachine = setup({
 });
 
 export type PairSnapshot = SnapshotFrom<typeof pairMachine>;
+
+/**
+ * Interface for accessing the pair state machine actor.
+ * Hides the xstate Actor implementation details and provides a stable API.
+ */
+export interface PairActor {
+	getSnapshot(): PairSnapshot;
+	send(event: PairEvent): void;
+	subscribe(observer: (snapshot: PairSnapshot) => void): Subscription;
+	getPersistedSnapshot(): PairSnapshot;
+	start(): void;
+	stop(): void;
+	reset(snapshot?: PairSnapshot): void;
+}
+
+/**
+ * Implementation of PairActor that wraps an xstate Actor.
+ * Allows resetting the actor with a new snapshot (e.g., on session reload).
+ * Subscriptions survive resets by tracking observers and re-subscribing to the new actor.
+ */
+export class PairActorImpl implements PairActor {
+	private actor: Actor<typeof pairMachine>;
+	private subscriptions = new Map<(snapshot: PairSnapshot) => void, Subscription>();
+
+	constructor(snapshot?: PairSnapshot) {
+		this.actor = snapshot
+			? createActor(pairMachine, { snapshot })
+			: createActor(pairMachine);
+	}
+
+	getSnapshot(): PairSnapshot {
+		return this.actor.getSnapshot();
+	}
+
+	send(event: PairEvent): void {
+		this.actor.send(event);
+	}
+
+	subscribe(observer: (snapshot: PairSnapshot) => void): Subscription {
+		const sub = this.actor.subscribe(observer);
+		this.subscriptions.set(observer, sub);
+
+		return {
+			unsubscribe: () => {
+				const currentSub = this.subscriptions.get(observer);
+				if (currentSub) {
+					currentSub.unsubscribe();
+					this.subscriptions.delete(observer);
+				}
+			},
+		};
+	}
+
+	getPersistedSnapshot(): PairSnapshot {
+		return this.actor.getPersistedSnapshot() as PairSnapshot;
+	}
+
+	start(): void {
+		this.actor.start();
+	}
+
+	stop(): void {
+		this.actor.stop();
+	}
+
+	reset(snapshot?: PairSnapshot): void {
+		this.stop();
+		this.actor = snapshot
+			? createActor(pairMachine, { snapshot })
+			: createActor(pairMachine);
+
+		// Re-subscribe all observers to the new actor
+		for (const [observer] of this.subscriptions) {
+			const newSub = this.actor.subscribe(observer);
+			this.subscriptions.set(observer, newSub);
+		}
+	}
+}
 
 export function phaseOf(snapshot: PairSnapshot): Phase {
 	if (snapshot.value === "IDLE") return "IDLE";
