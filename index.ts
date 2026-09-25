@@ -22,6 +22,7 @@ import {
 	isReadOnly,
 	isWorking,
 	phaseOf,
+	readOnlyTargetPhase,
 	restorable,
 	CHECKPOINT_TOOL,
 	PROTOCOL,
@@ -229,7 +230,8 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 		if (isToolCallEventType("bash", event)) {
 			const command = event.input.command;
 			if (isReadOnly(actor.getSnapshot()) && isMutating(command)) {
-				return { block: true, reason: `${phase()} phase is read-only. Blocked: ${command}` };
+				const target = readOnlyTargetPhase(actor.getSnapshot());
+				return { block: true, reason: `${phase()} phase is read-only. Call ${RESUME_TOOL} to propose moving to ${target}.` };
 			}
 			if (isDestructive(command)) {
 				if (!ctx.hasUI) return { block: true, reason: "Destructive command blocked (no UI to confirm)" };
@@ -241,7 +243,10 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 
 		if (!WRITE_TOOLS.has(event.toolName)) return;
 		// Tools are already removed in read-only phases; this catches calls planned before the removal landed.
-		if (isReadOnly(actor.getSnapshot())) return { block: true, reason: `${phase()} phase is read-only.` };
+		if (isReadOnly(actor.getSnapshot())) {
+			const target = readOnlyTargetPhase(actor.getSnapshot());
+			return { block: true, reason: `${phase()} phase is read-only. Call ${RESUME_TOOL} to propose moving to ${target}.` };
+		}
 		if (isThrashing(writeCounts())) {
 			return { block: true, reason: "Checkpoint required before further writes." };
 		}

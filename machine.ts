@@ -230,6 +230,22 @@ export function isDiscussing(snapshot: PairSnapshot): boolean {
 	return snapshot.hasTag("discussing");
 }
 
+// When a mutating call hits a read-only phase, the block reason names the phase the agent
+// would land in via resume_work. DESIGN always targets BUILD; CHECKPOINT targets BUILD or
+// REFINE depending on whether we're mid-refinement; PROPOSE targets REFINE.
+export function readOnlyTargetPhase(snapshot: PairSnapshot): string | undefined {
+	switch (phaseOf(snapshot)) {
+		case "DESIGN":
+			return "BUILD";
+		case "CHECKPOINT":
+			return snapshot.context.refining ? "REFINE" : "BUILD";
+		case "PROPOSE":
+			return "REFINE";
+		default:
+			return undefined;
+	}
+}
+
 // Stopping is restated here rather than left to PROTOCOL: tool gating cannot stop the agent talking,
 // and the latest instruction is the one it follows.
 export function banner(snapshot: PairSnapshot): string {
