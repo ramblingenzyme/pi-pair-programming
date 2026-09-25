@@ -14,7 +14,7 @@ pi install ~/src/pi-pair-programming       # load in every session
 pi -e ~/src/pi-pair-programming/index.ts   # or try it for one session
 ```
 
-Judgment calls use `deepseek-v4-flash` through the `opencode-go` provider, so that provider needs to be configured in pi. Without it, or with `--pair-rules`, keyword rules make the calls instead.
+Judgment calls default to the user's current session model with thinking turned off. Override with `/judge-model` or `--pair-judge-model`. Without a usable model, or with `--pair-rules`, keyword rules make the calls instead.
 
 ## Phases
 
@@ -56,6 +56,7 @@ See [docs/adr](docs/adr) for the reasoning.
 | `/continue` | Move on: approve the plan in DESIGN, leave a checkpoint to resume building or refining, or agree a refinement proposal. |
 | `/done` | End the current task. |
 | `/phase` | Show the phase, effort and task. |
+| `/judge-model [provider/model-id]` | Show or set the model for judgment calls. `/judge-model default` resets. |
 
 Running `rm -rf`, `sudo`, `git push --force`, `git reset --hard` or similar asks for confirmation in every phase. In print mode, with no UI to confirm, those commands are blocked.
 
@@ -69,6 +70,7 @@ These tools are only active in the state that uses them:
 ## Flags
 
 - `--pair-rules`: use keyword rules instead of the LLM judge.
+- `--pair-judge-model provider/model-id`: model for judgment calls (overridden by `/judge-model`).
 
 ## Unattended use
 

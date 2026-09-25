@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { Decider } from "./decider.ts";
+import { setPersistedJudgeModel } from "./index.ts";
 import {
 	type PairActor,
 	banner,
@@ -16,6 +17,9 @@ export function registerCommands(
 	pi: ExtensionAPI,
 	actor: PairActor,
 	decider: Decider,
+	session: () => ExtensionContext | undefined,
+	getJudgeModelOverride: () => string | undefined,
+	setJudgeModelOverride: (v: string | undefined) => void,
 ): void {
 	const phase = () => phaseOf(actor.getSnapshot());
 	const context = () => actor.getSnapshot().context;
@@ -106,6 +110,92 @@ export function registerCommands(
 				return;
 			}
 			actor.send({ type: "DONE" });
+		},
+	});
+
+	const formatModelList = () => {
+		const s = session();
+		if (!s) return [];
+		return s.modelRegistry.getAvailable().map((m) => `${m.provider}/${m.id}`);
+	};
+
+	pi.registerCommand("judge-model", {
+		description: "Show or set the model for pair-programmer judgment calls",
+		getArgumentCompletions: (prefix) => {
+			return formatModelList()
+				.map((value) => ({ label: value, value }))
+				.filter((item) => item.value.startsWith(prefix));
+		},
+		handler: async (args, ctx) => {
+			const arg = args.trim();
+			
+			// Helper to apply a model choice
+			const applyChoice = (choice: string) => {
+				// Strip checkmark prefix if present
+				const clean = choice.replace(/^✓ /, "");
+				
+				if (clean === "Default (session model)" || clean === "default") {
+					setJudgeModelOverride(undefined);
+					setPersistedJudgeModel(undefined);
+					ctx.ui.notify("Judge model reset to default", "info");
+					return true;
+				}
+				
+				const s = session();
+				const [provider, modelId] = clean.split("/");
+				const model = s?.modelRegistry.find(provider, modelId);
+				if (!model) {
+					ctx.ui.notify(`Model not found: ${clean}`, "error");
+					return false;
+				}
+				
+				setJudgeModelOverride(clean);
+				setPersistedJudgeModel(clean);
+				ctx.ui.notify(`Judge model set to ${clean}`, "info");
+				return true;
+			};
+			
+			// No args → show menu
+			if (!arg) {
+				if (!ctx.hasUI) {
+					ctx.ui.notify("No UI available. Usage: /judge-model provider/model-id", "error");
+					return;
+				}
+				
+				const models = formatModelList();
+				if (models.length === 0) {
+					ctx.ui.notify("No models available", "error");
+					return;
+				}
+				
+				// Determine current model
+				const current = getJudgeModelOverride() ?? (pi.getFlag("pair-judge-model") as string | undefined);
+				
+				// Build menu with current first
+				const options: string[] = [];
+				if (current === undefined) {
+					options.push("✓ Default (session model)");
+					options.push(...models);
+				} else {
+					options.push(`✓ ${current}`);
+					options.push("Default (session model)");
+					options.push(...models.filter(m => m !== current));
+				}
+				
+				const choice = await ctx.ui.select("Select judge model", options);
+				if (!choice) return; // cancelled
+				
+				applyChoice(choice);
+				return;
+			}
+			
+			// Direct set or reset
+			if (!arg.includes("/") && arg !== "default") {
+				ctx.ui.notify("Usage: /judge-model [provider/model-id | default]", "error");
+				return;
+			}
+			
+			applyChoice(arg);
 		},
 	});
 }

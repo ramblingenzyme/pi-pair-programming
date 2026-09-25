@@ -1,10 +1,13 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import {
+	getAgentDir,
 	type ExtensionAPI,
 	type ExtensionContext,
 	type SessionBoundaryDraft,
 	isToolCallEventType,
 } from "@earendil-works/pi-coding-agent";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
+import { join } from "path";
 import { registerCommands, registerTools } from "./commands.ts";
 import { type Decider, RuleDecider } from "./decider.ts";
 import { buildFooter } from "./footer.ts";
@@ -34,13 +37,42 @@ import {
 } from "./rules.ts";
 
 const STATE_ENTRY = "pair-state";
-// Fast and cheap: judgment calls sit on the agent's critical path. Thinking stays off by leaving
-// `reasoning` unset, which pi sends as thinking: disabled for DeepSeek-format providers.
-const JUDGE = { provider: "opencode-go", model: "deepseek-v4-flash" };
 // A judgment call that takes longer than this is worth less than the rules' instant answer.
 const DECIDER_TIMEOUT_MS = 20_000;
 const JUDGE_ENTRY = "pair-judge";
 const DISCUSS_HINT = "Discussing. /continue moves on, /done ends the task.";
+const CONFIG_FILE = "pair-programming.json";
+
+// Session-scoped override, persisted across sessions via /judge-model
+let judgeModelOverride: string | undefined;
+
+function getPersistedJudgeModel(): string | undefined {
+	try {
+		const path = join(getAgentDir(), CONFIG_FILE);
+		if (!existsSync(path)) return undefined;
+		const data = JSON.parse(readFileSync(path, "utf-8"));
+		return data.judgeModel;
+	} catch {
+		return undefined;
+	}
+}
+
+export function setPersistedJudgeModel(model: string | undefined): void {
+	try {
+		const dir = getAgentDir();
+		if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+		const path = join(dir, CONFIG_FILE);
+		const data = existsSync(path) ? JSON.parse(readFileSync(path, "utf-8")) : {};
+		if (model === undefined) {
+			delete data.judgeModel;
+		} else {
+			data.judgeModel = model;
+		}
+		writeFileSync(path, JSON.stringify(data, null, 2));
+	} catch {
+		// Silent fail — persistence is best-effort
+	}
+}
 
 export default function pairProgrammer(pi: ExtensionAPI) {
 	const actor: PairActor = new PairActorImpl();
@@ -48,23 +80,47 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 	let lastUserText = "";
 	let footerRequestRender: (() => void) | undefined;
 
+	judgeModelOverride = getPersistedJudgeModel();
+
 	pi.registerFlag("pair-rules", {
-		description: `Use keyword rules instead of ${JUDGE.model} for pair-programmer judgment calls`,
+		description: "Use keyword rules instead of the LLM judge for pair-programmer judgment calls",
 		type: "boolean",
 		default: false,
 	});
 
+	pi.registerFlag("pair-judge-model", {
+		description: "Model for pair-programmer judgment calls (format: provider/model-id)",
+		type: "string",
+	});
+
+	function resolveJudgeModel(): any {
+		// Resolution order: persisted setting → CLI flag → user's current model
+		const override = judgeModelOverride ?? (pi.getFlag("pair-judge-model") as string | undefined);
+		if (override) {
+			const [provider, modelId] = override.split("/");
+			return session?.modelRegistry.find(provider, modelId);
+		}
+		return session?.model;
+	}
+
 	const rules = new RuleDecider();
 	const decider: Decider = new LlmDecider(async (systemPrompt, user) => {
-		const model = session?.modelRegistry.find(JUDGE.provider, JUDGE.model);
+		const model = resolveJudgeModel();
 		if (pi.getFlag("pair-rules") || !session || !model) throw new Error("no judge model");
+		
+		// Thinking off: explicit for Anthropic, implicit for others
+		const options: any = {
+			signal: AbortSignal.timeout(DECIDER_TIMEOUT_MS),
+			sessionId: `${session.sessionManager.getSessionId()}:pair-judge`,
+		};
+		if (model.api === "anthropic-messages") {
+			options.thinkingEnabled = false;
+		}
+		
 		const response = await session.modelRegistry.complete(
 			model,
 			{ systemPrompt, messages: [{ role: "user", content: user, timestamp: Date.now() }] },
-			{
-				signal: AbortSignal.timeout(DECIDER_TIMEOUT_MS),
-				sessionId: `${session.sessionManager.getSessionId()}:pair-judge`,
-			},
+			options,
 		);
 		if (response.stopReason === "error" || response.stopReason === "aborted") {
 			throw new Error(response.errorMessage ?? response.stopReason);
@@ -262,7 +318,7 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 		if (context().task) pi.sendMessage(msg());
 	});
 
-	registerCommands(pi, actor, decider);
+	registerCommands(pi, actor, decider, () => session, () => judgeModelOverride, (v) => { judgeModelOverride = v; });
 	registerTools(pi, actor, () => lastUserText);
 }
 
