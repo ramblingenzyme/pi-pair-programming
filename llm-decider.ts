@@ -52,7 +52,6 @@ Allowed answers: trivial, standard, complex`,
 			`An agent is implementing an approved plan. Should it pause now for a human review?
 Pause when enough has changed that a reviewer would want to see it before more is built on top,
 or when the agent is heading somewhere the task did not ask for. Do not pause for routine progress.
-The agent claims it wants review: ${s.selfReportedCheckpoint ? "yes" : "no"}. Weigh that claim lightly.
 Files touched since the last review: ${s.filesTouched}. Writes since the last review: ${s.writesSinceCheckpoint}.
 
 <task>${s.task}</task>
@@ -65,15 +64,7 @@ Allowed answers: yes, no`,
 	}
 
 	async canSkipReview(s: ReviewSignals): Promise<boolean> {
-		const question =
-			s.gate === "plan"
-				? `Is this plan so small and unambiguous that a human would approve it without reading it?
-Answer no if it changes behaviour beyond what the task asked, touches more than two files, leaves a
-real choice open, or you are unsure.
-
-<task>${s.task}</task>
-<plan>${s.lastAssistantText}</plan>`
-				: `The agent says it has finished. Is the work so small that a human would accept it without looking?
+		const question = `The agent says it has finished. Is the work so small that a human would accept it without looking?
 Answer no if it reports failures, skipped verification, open questions, or you are unsure.
 
 <task>${s.task}</task>

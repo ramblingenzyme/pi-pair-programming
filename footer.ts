@@ -1,15 +1,15 @@
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { relative, resolve, sep } from "node:path";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import {
 	type ExtensionContext,
 	type ReadonlyFooterDataProvider,
 	type Theme,
 } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth, type Component, type TUI } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth, type TUI } from "@earendil-works/pi-tui";
 import {
 	type PairActor,
 	type PairSnapshot,
-	isProposingRefinement,
+	isReview,
 	phaseOf,
 } from "./machine.ts";
 
@@ -66,7 +66,7 @@ function computeTokenStats(ctx: ExtensionContext): { input: number; output: numb
 function phaseColor(snapshot: PairSnapshot): "dim" | "accent" | "warning" {
 	const phase = phaseOf(snapshot);
 	if (phase === "IDLE") return "dim";
-	if (phase === "CHECKPOINT" || isProposingRefinement(snapshot)) return "warning";
+	if (isReview(snapshot)) return "warning";
 	return "accent";
 }
 

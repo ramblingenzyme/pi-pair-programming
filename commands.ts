@@ -3,17 +3,14 @@ import { Type } from "typebox";
 import type { Decider } from "./decider.ts";
 import {
 	type PairActor,
-	type PairContext,
-	type PairSnapshot,
 	banner,
 	bannerMessage,
 	isDiscussing,
-	isProposingRefinement,
+	isWorking,
 	phaseOf,
 	CHECKPOINT_TOOL,
 	RESUME_TOOL,
 } from "./machine.ts";
-import type { Phase } from "./rules.ts";
 
 export function registerCommands(
 	pi: ExtensionAPI,
@@ -52,26 +49,23 @@ export function registerCommands(
 	});
 
 	pi.registerCommand("continue", {
-		description: "Move on: leave a checkpoint to resume work, or agree a refinement proposal",
+		description: "Move on: approve the plan in DESIGN, leave a checkpoint to resume work, or agree a refinement proposal",
 		handler: async (_args, ctx) => {
-			if (isProposingRefinement(actor.getSnapshot())) {
-				actor.send({ type: "AGREE" });
-			} else if (phase() === "CHECKPOINT") {
-				actor.send({ type: "CONTINUE" });
-			} else {
+			if (!actor.getSnapshot().can({ type: "CONTINUE" })) {
 				ctx.ui.notify(`Nothing to continue: phase is ${phase()}`, "info");
 				return;
 			}
+			actor.send({ type: "CONTINUE" });
 			pi.sendMessage(bannerMessage(actor.getSnapshot()), { triggerTurn: true });
 		},
 	});
 
-	pi.registerCommand("plan", {
-		description: "Plan before building: between tasks, /plan <task>; or at a checkpoint to re-plan",
+	pi.registerCommand("design", {
+		description: "Think it through before building: between tasks, /design <task>; or at a checkpoint to rethink",
 		handler: async (args, ctx) => {
 			const task = args.trim();
 			if (phase() === "IDLE" && !task) {
-				ctx.ui.notify("Usage: /plan <task>", "info");
+				ctx.ui.notify("Usage: /design <task>", "info");
 				return;
 			}
 			await idleOrCheckpoint(
@@ -82,7 +76,7 @@ export function registerCommands(
 				() => {
 					actor.send({ type: "PLAN" });
 				},
-				"Planning",
+				"Design",
 			);
 		},
 	});
@@ -124,29 +118,36 @@ export function registerTools(
 	const context = () => actor.getSnapshot().context;
 	const bannerText = () => banner(actor.getSnapshot());
 
-	// The agent can only propose leaving a checkpoint; the user's confirm is the approval. A tool call is
+	// The agent can only propose leaving a discussion; the user's confirm is the approval. A tool call is
 	// the agent's claim that the user asked, which is self-report and can come from misreading or injection.
 	pi.registerTool({
 		name: RESUME_TOOL,
 		label: "Resume work",
 		description:
-			"Propose leaving the discussion to move on: resume building or refining after a checkpoint, or start the agreed refinement. Call only when the user has asked to go on. The user must confirm.",
+			"Propose moving on: build the plan from DESIGN, resume building or refining after a checkpoint, or start the agreed refinement. Call only when the user has asked to go on. The user must confirm.",
 		parameters: Type.Object({
 			reason: Type.String({ description: "What the user said that asks to go on" }),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			if (!isDiscussing(actor.getSnapshot())) throw new Error("Not in a discussion.");
-			if (!ctx.hasUI) throw new Error("No one can confirm here; stay in the discussion.");
-			const proposing = isProposingRefinement(actor.getSnapshot());
+			const designing = phaseOf(actor.getSnapshot()) === "DESIGN";
+			if (!ctx.hasUI) throw new Error("No one can confirm here; stay where you are.");
+			const proposing = phaseOf(actor.getSnapshot()) === "PROPOSE";
 			const confirmed = await ctx.ui.confirm(
-				proposing ? "Start the agreed refinement?" : context().refining ? "Resume refining?" : "Resume building?",
+				designing
+					? "Build this plan?"
+					: proposing
+						? "Start the agreed refinement?"
+						: context().refining
+							? "Resume refining?"
+							: "Resume building?",
 				`You said: "${lastUserText()}"\n\nAgent's reading: ${params.reason}`,
 			);
 			if (!confirmed) {
-				const text = "The user did not confirm. Stay in the discussion; do not propose moving on again unless they ask.";
+				const text = "The user did not confirm. Stay where you are; do not propose moving on again unless they ask.";
 				return { content: [{ type: "text", text }], details: undefined };
 			}
-			actor.send({ type: proposing ? "AGREE" : "CONTINUE" });
+			actor.send({ type: "CONTINUE" });
 			return { content: [{ type: "text", text: bannerText() }], details: undefined };
 		},
 	});
@@ -156,12 +157,12 @@ export function registerTools(
 		name: CHECKPOINT_TOOL,
 		label: "Request checkpoint",
 		description:
-			"Stop refining and hand over for review. Call when a refinement round is finished and verified, or when anything fails.",
+			"Stop working and hand over for review. Call when a human should look before you continue: a refinement round is finished and verified, anything fails while refining, or building has reached a point worth reviewing.",
 		parameters: Type.Object({
-			reason: Type.String({ description: "Why: the round that finished, or what failed" }),
+			reason: Type.String({ description: "Why: what is ready for review, or what failed" }),
 		}),
 		async execute() {
-			if (!actor.getSnapshot().matches({ task: { REFINE: "apply" } })) throw new Error("Not refining.");
+			if (!isWorking(actor.getSnapshot())) throw new Error("Not building or refining.");
 			actor.send({ type: "CHECKPOINT" });
 			return { content: [{ type: "text", text: bannerText() }], details: undefined };
 		},

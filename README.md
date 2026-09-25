@@ -21,14 +21,15 @@ Judgment calls use `deepseek-v4-flash` through the `opencode-go` provider, so th
 | Phase | What the agent can do | How it ends |
 |---|---|---|
 | **IDLE** | Nothing is tracked. | Your next prompt starts a task. |
-| **DESIGN** | Read only: edit and write are removed, and bash is limited to non-mutating commands. It explores and proposes a plan. | You approve the plan ("Plan ready?"). |
-| **BUILD** | Everything. | A checkpoint, forced or judged, or the agent finishing. |
+| **DESIGN** | Read only: edit and write are removed, and bash is limited to non-mutating commands. It explores the code with you and captures ideas, and writes a plan only when you ask for one. | You approve the plan: the agent proposes it with `resume_work` and you confirm, or you type `/continue`. |
+| **BUILD** | Everything. | A checkpoint, forced, judged, or requested by the agent; or the agent finishing. |
 | **CHECKPOINT** | Read only. It summarises its work, then discusses it with you. | You continue, re-plan, refine, or finish. |
-| **REFINE** | *Propose*: read only, it proposes what is worth compressing, meaning duplication that already exists in the code, not terseness. You discuss the proposal the way you discuss a checkpoint. *Apply*: it compresses what you agreed, without changing behaviour. | You agree to the proposal; the agent calls `request_checkpoint`; or a failure stops it. |
+| **PROPOSE** | Read only. It proposes what is worth compressing, meaning duplication that already exists in the code, not terseness. You discuss the proposal the way you discuss a checkpoint. | You agree to the proposal. |
+| **REFINE** | It compresses what you agreed, without changing behaviour. | The agent calls `request_checkpoint`, or a failure stops it. |
 
 Each new prompt in IDLE is classified by effort. **Trivial** tasks go straight to BUILD. **Standard** and **complex** tasks start in DESIGN. For complex tasks the agent is told to explore the code before proposing a plan.
 
-A banner stating the current phase goes to the model at the start of every prompt, again at every phase change, and again after compaction.
+The rules of the whole workflow are appended to the system prompt. A short banner stating the current phase and what to do now goes to the model at the start of every prompt, again at every phase change, and again after compaction.
 
 ### Checkpoints
 
@@ -41,8 +42,8 @@ At the review, choose **Discuss**, **Continue building** (or **Continue refining
 ### Who decides what
 
 - **Hard rules run first, and the judge can't override them.** These are destructive-command confirmation, read-only enforcement, the 4-edit limit, and which review gates the judge may pass at all.
-- **The judge handles the ambiguous middle:** effort classification, and whether to stop for a mid-run checkpoint. It may also pass a review gate for small work: a standard task's plan, or a trivial task's result.
-- **You decide everything else:** approving plans that aren't small, agreeing refinements, and leaving checkpoints. The agent can *propose* leaving a discussion with `resume_work`, but you confirm it.
+- **The judge handles the ambiguous middle:** effort classification, and whether to stop for a mid-run checkpoint. It may also finish a trivial task without review.
+- **You decide everything else:** approving plans, agreeing refinements, and leaving checkpoints. The agent can *propose* moving on with `resume_work`, but you confirm it.
 
 See [docs/adr](docs/adr) for the reasoning.
 
@@ -50,9 +51,9 @@ See [docs/adr](docs/adr) for the reasoning.
 
 | Command | Effect |
 |---|---|
-| `/plan <task>` | Start a task in DESIGN whatever its effort. At a checkpoint, `/plan` re-plans. |
+| `/design <task>` | Start a task in DESIGN whatever its effort. At a checkpoint, `/design` goes back to DESIGN. |
 | `/refine [what]` | Start a refinement task. At a checkpoint, propose refinements to the current task. |
-| `/continue` | Move on: leave a checkpoint to resume building or refining, or agree a refinement proposal. |
+| `/continue` | Move on: approve the plan in DESIGN, leave a checkpoint to resume building or refining, or agree a refinement proposal. |
 | `/done` | End the current task. |
 | `/phase` | Show the phase, effort and task. |
 
@@ -62,8 +63,8 @@ Running `rm -rf`, `sudo`, `git push --force`, `git reset --hard` or similar asks
 
 These tools are only active in the state that uses them:
 
-- **`resume_work`**: while discussing a checkpoint or a refinement proposal. The agent proposes moving on, and you confirm with your last message quoted.
-- **`request_checkpoint`**: while applying a refinement. The agent hands over for review after a round, or when something fails.
+- **`resume_work`**: in DESIGN, and while discussing a checkpoint or a refinement proposal. The agent proposes moving on, and you confirm with your last message quoted.
+- **`request_checkpoint`**: in BUILD and REFINE. The agent hands over for review when something is worth a look, after a refinement round, or when a refinement fails.
 
 ## Flags
 
@@ -71,7 +72,7 @@ These tools are only active in the state that uses them:
 
 ## Unattended use
 
-In print mode (`pi -p`) nobody can confirm anything. Gates that need you stop the run, but the gates the judge may pass (small standard plans, trivial results) still pass. So `pi -p` with this extension can edit files and close small tasks without a person involved.
+In print mode (`pi -p`) nobody can confirm anything. Gates that need you stop the run, including every plan, so standard and complex tasks stop in DESIGN. Trivial tasks skip DESIGN, and the judge may still finish them, so `pi -p` with this extension can edit files and close trivial tasks without a person involved.
 
 ## Inspecting decisions
 

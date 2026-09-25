@@ -1,6 +1,6 @@
 # 2. Agent claims may add oversight, never remove it
 
-**Status:** accepted
+**Status:** accepted. Amended by ADR 4 and ADR 5.
 
 ## Decision
 

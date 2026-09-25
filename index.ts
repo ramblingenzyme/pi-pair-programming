@@ -15,13 +15,13 @@ import {
 	type PairSnapshot,
 	PairActorImpl,
 	bannerMessage,
-	isApplyingRefinement,
 	isDiscussing,
-	isProposingRefinement,
 	isReadOnly,
+	isWorking,
 	phaseOf,
 	restorable,
 	CHECKPOINT_TOOL,
+	PROTOCOL,
 	RESUME_TOOL,
 } from "./machine.ts";
 import {
@@ -41,7 +41,6 @@ const JUDGE = { provider: "opencode-go", model: "deepseek-v4-flash" };
 const DECIDER_TIMEOUT_MS = 20_000;
 const JUDGE_ENTRY = "pair-judge";
 const DISCUSS_HINT = "Discussing. /continue moves on, /done ends the task.";
-const SELF_REPORT = /^\s*STATUS:\s*checkpoint-requested\s*$/im;
 
 export default function pairProgrammer(pi: ExtensionAPI) {
 	const actor: PairActor = new PairActorImpl();
@@ -79,13 +78,12 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 	const writeCounts = () => new Map(context().writesPerFile);
 
 	function applyPhase(snapshot: PairSnapshot): void {
-		const current = phaseOf(snapshot);
 		const managed = new Set([...WRITE_TOOLS, RESUME_TOOL, CHECKPOINT_TOOL]);
 		pi.setActiveTools([
 			...pi.getActiveTools().filter((t) => !managed.has(t)),
 			...(isReadOnly(snapshot) ? [] : WRITE_TOOLS),
 			...(isDiscussing(snapshot) ? [RESUME_TOOL] : []),
-			...(isApplyingRefinement(snapshot) ? [CHECKPOINT_TOOL] : []),
+			...(isWorking(snapshot) ? [CHECKPOINT_TOOL] : []),
 		]);
 		// Trigger footer re-render to reflect phase change
 		footerRequestRender?.();
@@ -100,25 +98,9 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 		return { entries: [bannerEntry()], continue: true };
 	}
 
-	// Each settle gate asks the human when the Decider cannot pass it, and returns the response
-	// that lets the agent continue, or nothing when the turn should stop here.
-	async function planGate(ctx: ExtensionContext, canSkip: (gate: "plan" | "finish") => Promise<boolean>) {
-		if (await canSkip("plan")) {
-			ctx.ui.notify("Plan auto-approved", "info");
-		} else {
-			if (!ctx.hasUI) return;
-			const choice = await ctx.ui.select("Plan ready?", ["Keep designing", "Approve and build"]);
-			if (choice !== "Approve and build") return;
-		}
-		return moveOn({ type: "APPROVE" });
-	}
-
 	/** True when the finish gate auto-ended the task, so settling stops here rather than checkpointing. */
-	async function finishGate(
-		ctx: ExtensionContext,
-		canSkip: (gate: "plan" | "finish") => Promise<boolean>,
-	): Promise<boolean> {
-		if (!(await canSkip("finish"))) return false;
+	async function finishGate(ctx: ExtensionContext, canFinish: () => Promise<boolean>): Promise<boolean> {
+		if (!(await canFinish())) return false;
 		ctx.ui.notify("Task auto-finished", "info");
 		actor.send({ type: "DONE" });
 		return true;
@@ -173,19 +155,18 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 		lastUserText = event.text;
 		if (phase() === "IDLE") {
 			actor.send({ type: "TASK", task: event.text, effort: await decider.classifyEffort(event.text) });
-		} else if (
-			(phase() === "CHECKPOINT" || isProposingRefinement(actor.getSnapshot())) &&
-			!isDiscussing(actor.getSnapshot())
-		) {
-			// Typing at a checkpoint or proposal is discussing it, however the user got here (Esc, resume, never chose).
+		} else if (actor.getSnapshot().can({ type: "DISCUSS" })) {
+			// Typing at a review is discussing it, however the user got here (Esc, resume, never chose).
 			actor.send({ type: "DISCUSS" });
 			ctx.ui.notify(DISCUSS_HINT, "info");
 		}
 	});
 
-	pi.on("before_agent_start", async () => {
-		if (!context().task) return;
-		return { message: msg() };
+	// PROTOCOL goes in whether or not there is a task: toggling it would change the system prompt,
+	// and so the cached prefix of the whole conversation, at every task boundary.
+	pi.on("before_agent_start", async (event) => {
+		const systemPrompt = `${event.systemPrompt}\n\n${PROTOCOL}`;
+		return context().task ? { message: msg(), systemPrompt } : { systemPrompt };
 	});
 
 	pi.on("tool_call", async (event, ctx) => {
@@ -216,7 +197,7 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 	pi.on("turn_end", async (event) => {
 		// Refining must not change behaviour, so a failure there is a bug, not something to fix forward:
 		// the reverse of BUILD, where a failure means the agent is mid-fix (see midRunCheckpoint).
-		if (isApplyingRefinement(actor.getSnapshot()) && event.toolResults.some((r) => r.isError)) {
+		if (phase() === "REFINE" && event.toolResults.some((r) => r.isError)) {
 			return moveOn({ type: "CHECKPOINT" });
 		}
 		const { task, writesPerFile } = context();
@@ -235,7 +216,6 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 				task,
 				filesTouched: counts.size,
 				writesSinceCheckpoint: [...counts.values()].reduce((a, b) => a + b, 0),
-				selfReportedCheckpoint: SELF_REPORT.test(text),
 				lastAssistantText: text,
 			}))
 		) {
@@ -244,35 +224,31 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 		return moveOn({ type: "CHECKPOINT" });
 	});
 
-	// Human gates: what settling means depends on the phase. DESIGN and a refinement proposal end
-	// with a human gate before the agent resumes; settling mid-run lands at a checkpoint review.
-	// The Decider may pass a gate deciderMayPass allows; a BUILD run that settles on its own skips
-	// its gate. The checkpoint menu is offered at most once per checkpoint.
+	// Human gates: what settling means depends on the phase. DESIGN and a refinement proposal just
+	// wait; the agent leaves them through resume_work, which the user confirms. Settling mid-run lands
+	// at a checkpoint review, unless the Decider may auto-finish a BUILD run that settled on its own.
+	// The checkpoint menu is offered at most once per checkpoint.
 	pi.on("agent_before_settle", async (event, ctx) => {
-		const { task, effort, writesPerFile } = context();
+		const { task, effort } = context();
 		if (event.outcome !== "completed" || !task) return;
 		// A refinement started from IDLE has no effort: nothing about it was classified, so nothing auto-passes.
 		const counts = writeCounts();
-		const canSkip = async (gate: "plan" | "finish") =>
+		const canFinish = async () =>
 			effort !== undefined &&
-			deciderMayPass(gate, effort, counts) &&
+			deciderMayPass(effort, counts) &&
 			(await decider.canSkipReview({
-				gate,
 				task,
 				effort,
 				filesTouched: counts.size,
 				lastAssistantText: lastAssistantText(event.context.contextMessages),
 			}));
 
-		// Turn-ending gates: each returns the continue response when approved, nothing when not.
-		if (phase() === "DESIGN") return planGate(ctx, canSkip);
-
 		// Mid-run work lands at a checkpoint, so the agent pauses for review; BUILD may end the whole
 		// task instead when its finish gate auto-approves. The checkpoint menu follows either way.
-		if (phase() === "REFINE" && isApplyingRefinement(actor.getSnapshot())) {
+		if (phase() === "REFINE") {
 			actor.send({ type: "CHECKPOINT" });
 		} else if (phase() === "BUILD") {
-			if (await finishGate(ctx, canSkip)) return;
+			if (await finishGate(ctx, canFinish)) return;
 			actor.send({ type: "CHECKPOINT" });
 		}
 

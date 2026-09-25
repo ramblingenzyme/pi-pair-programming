@@ -1,6 +1,6 @@
 # 3. xstate phase machine with persisted snapshots
 
-**Status:** accepted
+**Status:** accepted. Amended by ADR 6.
 
 ## Decision
 

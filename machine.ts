@@ -4,11 +4,34 @@ import type { Effort, Phase } from "./rules.ts";
 export const RESUME_TOOL = "resume_work";
 export const CHECKPOINT_TOOL = "request_checkpoint";
 const BANNER = "pair-phase-banner";
-// What "compression" means here. Without it the refine banners only name the word, and the model
-// fills it in with terseness or speculative abstraction.
-const COMPRESSION = `Compression here means semantic compression: removing duplication that already exists in the
-working code, so each piece says only what is unique to it. It is not making code shorter, and not adding
-abstractions for cases that do not exist yet. Measure it by the total cost to a reader and maintainer.`;
+// The rules of the whole workflow, appended to the system prompt on every turn.
+// Banners then only name the phase and what to do now, instead of repeating these into the history.
+export const PROTOCOL = `# Pair programming
+
+You work in phases a human moves you through. Each turn starts with a [PHASE: ...] banner saying where you are.
+
+- DESIGN: read-only. Explore with the user until they ask for a plan (see below). Then write a concrete plan: files to
+  change, what changes, how you will verify.
+- BUILD: implement the approved plan.
+- CHECKPOINT: read-only. Summarize for review, then discuss the work with the user.
+- PROPOSE: read-only. Propose what, if anything, is worth compressing and why, and what you would leave alone. Then discuss it with the user.
+- REFINE: carry out the agreed compression without changing behaviour, in rounds you verify by running the tests.
+
+In read-only phases edit and write tools are removed and bash is read-only; do not try to work around this.
+
+In DESIGN and in discussions, work as a thinking partner: capture the user's ideas, explore the codebase to answer
+questions of feasibility and correctness, and say what you find. Do not produce an execution plan, and do not ask for
+approval, until the user asks for one. In a discussion, do not repeat the summary or proposal whole.
+
+When the user asks to go on (build the plan, resume, or start the agreed refinement), call ${RESUME_TOOL}; the user
+confirms before anything changes.
+
+In BUILD, call ${CHECKPOINT_TOOL} when a human should look before you continue. In REFINE, call it when a round is
+done, or as soon as anything fails; do not fix a failure forward.
+
+Compression here means semantic compression: removing duplication that already exists in the working code, so each
+piece says only what is unique to it. It is not making code shorter, and not adding abstractions for cases that do
+not exist yet. Measure it by the total cost to a reader and maintainer.`;
 
 export interface PairContext {
 	task?: string;
@@ -24,14 +47,23 @@ export type PairEvent =
 	/** Like TASK but always plans first, whatever the effort. From a checkpoint it re-plans and needs no task. */
 	| { type: "PLAN"; task?: string; effort?: Effort }
 	| { type: "WRITE"; path: string }
-	| { type: "APPROVE" }
 	| { type: "CHECKPOINT" }
 	| { type: "DISCUSS" }
 	/** From IDLE it starts a task; the task text says what to look at. From a checkpoint it needs none. */
 	| { type: "REFINE"; task?: string }
-	| { type: "AGREE" }
 	| { type: "CONTINUE" }
 	| { type: "DONE" };
+
+// Where the agent has handed something over and it is the user's move: a one-time selector, then
+// discussion once the user starts talking.
+const review = {
+	tags: ["readOnly", "review"],
+	initial: "review",
+	states: {
+		review: { on: { DISCUSS: "discuss" } },
+		discuss: { tags: "discussing" },
+	},
+} as const;
 
 export const pairMachine = setup({
 	types: { context: {} as PairContext, events: {} as PairEvent },
@@ -68,45 +100,26 @@ export const pairMachine = setup({
 					{ target: "task.DESIGN", actions: "startTask" },
 				],
 				PLAN: { target: "task.DESIGN", actions: "startTask" },
-				REFINE: { target: "task.REFINE", actions: "startRefineTask" },
+				REFINE: { target: "task.PROPOSE", actions: "startRefineTask" },
 			},
 		},
 		task: {
 			initial: "DESIGN",
 			on: { DONE: { target: "IDLE", actions: "clearTask" } },
 			states: {
-				DESIGN: { tags: "readOnly", on: { APPROVE: "BUILD" } },
-				BUILD: { entry: "enterBuild", on: { WRITE: { actions: "countWrite" }, CHECKPOINT: "CHECKPOINT" } },
+				DESIGN: { tags: ["readOnly", "discussing"], on: { CONTINUE: "BUILD" } },
+				BUILD: { entry: "enterBuild", tags: "working", on: { WRITE: { actions: "countWrite" }, CHECKPOINT: "CHECKPOINT" } },
 				CHECKPOINT: {
-					tags: "readOnly",
-					initial: "review",
+					...review,
 					on: {
-						CONTINUE: [{ guard: "refining", target: "REFINE.apply" }, { target: "BUILD" }],
+						CONTINUE: [{ guard: "refining", target: "REFINE" }, { target: "BUILD" }],
 						PLAN: "DESIGN",
-						REFINE: "REFINE",
-					},
-					states: {
-						review: { on: { DISCUSS: "discuss" } },
-						discuss: { tags: "discussing" },
+						REFINE: "PROPOSE",
 					},
 				},
 				// Behaviour-preserving compression. It starts by agreeing what is worth compressing.
-				REFINE: {
-					entry: "enterRefine",
-					initial: "propose",
-					states: {
-						propose: {
-							tags: "readOnly",
-							initial: "review",
-							on: { AGREE: "apply" },
-							states: {
-								review: { on: { DISCUSS: "discuss" } },
-								discuss: { tags: "discussing" },
-							},
-						},
-						apply: { on: { CHECKPOINT: "#pair.task.CHECKPOINT" } },
-					},
-				},
+				PROPOSE: { ...review, entry: "enterRefine", on: { CONTINUE: "REFINE" } },
+				REFINE: { tags: "working", on: { CHECKPOINT: "CHECKPOINT" } },
 			},
 		},
 	},
@@ -202,61 +215,44 @@ export function isReadOnly(snapshot: PairSnapshot): boolean {
 	return snapshot.hasTag("readOnly");
 }
 
-export function isApplyingRefinement(snapshot: PairSnapshot): boolean {
-	return snapshot.matches({ task: { REFINE: "apply" } });
+/** CHECKPOINT or PROPOSE: the agent has handed something over for the user. */
+export function isReview(snapshot: PairSnapshot): boolean {
+	return snapshot.hasTag("review");
 }
 
-/** Talking over a checkpoint or a refinement proposal, after the one-time selector. */
+/** Making changes the agent may hand over for review: BUILD or REFINE. */
+export function isWorking(snapshot: PairSnapshot): boolean {
+	return snapshot.hasTag("working");
+}
+
+/** Talking things through: DESIGN, or a checkpoint or refinement proposal after the one-time selector. */
 export function isDiscussing(snapshot: PairSnapshot): boolean {
 	return snapshot.hasTag("discussing");
 }
 
-export function isProposingRefinement(snapshot: PairSnapshot): boolean {
-	return snapshot.matches({ task: { REFINE: "propose" } });
-}
-
+// Stopping is restated here rather than left to PROTOCOL: tool gating cannot stop the agent talking,
+// and the latest instruction is the one it follows.
 export function banner(snapshot: PairSnapshot): string {
 	const { task, effort } = snapshot.context;
 	const taskLine = task ? `\nTask: ${task}` : "";
 	switch (phaseOf(snapshot)) {
 		case "DESIGN":
 			return `[PHASE: DESIGN]${taskLine}
-Edit and write tools are removed; bash is read-only. ${
-				effort === "complex" ? "Explore the affected code thoroughly before proposing anything. " : ""
-			}Produce a concrete plan: files to change, what changes, how you will verify. Then stop and wait for approval.`;
+${effort === "complex" ? "Explore the affected code thoroughly before any plan. " : ""}No execution plan until the user asks for one.`;
 		case "BUILD":
 			return `[PHASE: BUILD]${taskLine}
-Implement the approved plan. If you reach a point where a human should look before you continue, end your message with the line:
-STATUS: checkpoint-requested`;
+Implement the plan.`;
 		case "CHECKPOINT":
-			if (isDiscussing(snapshot)) {
-				return `[PHASE: CHECKPOINT — DISCUSSION]${taskLine}
-The review summary has been given. The user is now discussing the work with you: answer their questions and
-talk through changes, but do not repeat the summary. Edit and write tools are removed; bash is read-only.
-If the user asks to resume work, call ${RESUME_TOOL}; the user confirms before anything changes.`;
-			}
+			if (isDiscussing(snapshot)) return `[PHASE: CHECKPOINT — DISCUSSION]${taskLine}`;
 			return `[PHASE: CHECKPOINT]${taskLine}
-Stop building. Edit and write tools are removed. Summarize for review: what changed and where, what is verified and how, what is still open. Do not continue work until the user responds.`;
+Stop. Summarize what changed and where, what is verified and how, what is still open. Then wait.`;
+		case "PROPOSE":
+			if (isDiscussing(snapshot)) return `[PHASE: PROPOSE — DISCUSSION]${taskLine}`;
+			return `[PHASE: PROPOSE]${taskLine}
+Propose, then stop and wait: nothing changes until you and the user agree.`;
 		case "REFINE":
-			if (isApplyingRefinement(snapshot)) {
-				return `[PHASE: REFINE]${taskLine}
-${COMPRESSION}
-Carry out the refinement agreed with the user. It must not change behaviour. Work in rounds you can verify,
-running the tests after each. Call ${CHECKPOINT_TOOL} when a round is done, or as soon as anything fails;
-do not fix a failure forward.`;
-			}
-			if (isDiscussing(snapshot)) {
-				return `[PHASE: REFINE — DISCUSSING THE PROPOSAL]${taskLine}
-${COMPRESSION}
-The proposal has been given. The user is discussing it with you: answer, revise the proposal where they
-push back, but do not repeat it whole. Edit and write tools are removed; bash is read-only. If the user
-agrees to go ahead, call ${RESUME_TOOL}; the user confirms before anything changes.`;
-			}
-			return `[PHASE: REFINE — PROPOSE]${taskLine}
-${COMPRESSION}
-Edit and write tools are removed; bash is read-only. Look at the code as it stands and propose what, if
-anything, is worth compressing and why, and what you would leave alone. Then stop and wait: the user and
-you agree on what to change before anything changes.`;
+			return `[PHASE: REFINE]${taskLine}
+Carry out the agreed refinement.`;
 		case "IDLE":
 			return "[PHASE: IDLE]";
 	}

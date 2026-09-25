@@ -2,10 +2,9 @@ import { describe, expect, it } from "expect-native";
 import { createActor } from "xstate";
 import {
 	type PairSnapshot,
-	isApplyingRefinement,
 	isDiscussing,
-	isProposingRefinement,
 	isReadOnly,
+	isWorking,
 	pairMachine,
 	phaseOf,
 	restorable,
@@ -30,11 +29,12 @@ describe("pairMachine", () => {
 		const actor = started();
 		actor.send({ type: "TASK", task: "add a flag", effort: "standard" });
 		expect(phase(actor)).toBe("DESIGN");
+		expect(isDiscussing(actor.getSnapshot())).toBe(true);
 		actor.send({ type: "CHECKPOINT" });
 		actor.send({ type: "WRITE", path: "a.ts" });
 		expect(phase(actor)).toBe("DESIGN");
 		expect(actor.getSnapshot().context.writesPerFile).toEqual([]);
-		actor.send({ type: "APPROVE" });
+		actor.send({ type: "CONTINUE" });
 		expect(phase(actor)).toBe("BUILD");
 	});
 
@@ -103,13 +103,13 @@ describe("pairMachine", () => {
 		actor.send({ type: "WRITE", path: "a.ts" });
 		actor.send({ type: "CHECKPOINT" });
 		actor.send({ type: "REFINE" });
-		expect(phase(actor)).toBe("REFINE");
+		expect(phase(actor)).toBe("PROPOSE");
 		expect(isReadOnly(actor.getSnapshot())).toBe(true);
 		expect(actor.getSnapshot().context.writesPerFile).toEqual([]);
 		actor.send({ type: "CHECKPOINT" });
+		expect(phase(actor)).toBe("PROPOSE");
+		actor.send({ type: "CONTINUE" });
 		expect(phase(actor)).toBe("REFINE");
-		actor.send({ type: "AGREE" });
-		expect(isApplyingRefinement(actor.getSnapshot())).toBe(true);
 		expect(isReadOnly(actor.getSnapshot())).toBe(false);
 	});
 
@@ -118,11 +118,11 @@ describe("pairMachine", () => {
 		actor.send({ type: "TASK", task: "t", effort: "trivial" });
 		actor.send({ type: "CHECKPOINT" });
 		actor.send({ type: "REFINE" });
-		actor.send({ type: "AGREE" });
+		actor.send({ type: "CONTINUE" });
 		actor.send({ type: "CHECKPOINT" });
 		expect(isReadOnly(actor.getSnapshot())).toBe(true);
 		actor.send({ type: "CONTINUE" });
-		expect(isApplyingRefinement(actor.getSnapshot())).toBe(true);
+		expect(phase(actor)).toBe("REFINE");
 		actor.send({ type: "CHECKPOINT" });
 		actor.send({ type: "DONE" });
 		actor.send({ type: "TASK", task: "u", effort: "trivial" });
@@ -131,25 +131,31 @@ describe("pairMachine", () => {
 		expect(phase(actor)).toBe("BUILD");
 	});
 
-	it("treats DESIGN and CHECKPOINT as read-only, BUILD as writable", () => {
+	it("treats DESIGN and CHECKPOINT as read-only, BUILD and REFINE as working", () => {
 		const actor = started();
 		actor.send({ type: "TASK", task: "t", effort: "standard" });
 		expect(isReadOnly(actor.getSnapshot())).toBe(true);
-		actor.send({ type: "APPROVE" });
+		expect(isWorking(actor.getSnapshot())).toBe(false);
+		actor.send({ type: "CONTINUE" });
 		expect(isReadOnly(actor.getSnapshot())).toBe(false);
+		expect(isWorking(actor.getSnapshot())).toBe(true);
 		actor.send({ type: "CHECKPOINT" });
 		actor.send({ type: "DISCUSS" });
 		expect(isReadOnly(actor.getSnapshot())).toBe(true);
+		expect(isWorking(actor.getSnapshot())).toBe(false);
+		actor.send({ type: "REFINE" });
+		actor.send({ type: "CONTINUE" });
+		expect(isWorking(actor.getSnapshot())).toBe(true);
 	});
 
 	it("starts a refinement task straight from IDLE, without an effort", () => {
 		const actor = started();
 		actor.send({ type: "REFINE", task: "the store and formatter" });
-		expect(phase(actor)).toBe("REFINE");
+		expect(phase(actor)).toBe("PROPOSE");
 		expect(isReadOnly(actor.getSnapshot())).toBe(true);
 		expect(actor.getSnapshot().context).toMatchObject({ task: "the store and formatter", refining: true });
 		expect(actor.getSnapshot().context.effort).toBeUndefined();
-		actor.send({ type: "AGREE" });
+		actor.send({ type: "CONTINUE" });
 		actor.send({ type: "CHECKPOINT" });
 		actor.send({ type: "DONE" });
 		expect(phase(actor)).toBe("IDLE");
@@ -160,7 +166,7 @@ describe("pairMachine", () => {
 		actor.send({ type: "PLAN", task: "fix typo", effort: "trivial" });
 		expect(phase(actor)).toBe("DESIGN");
 		expect(actor.getSnapshot().context).toMatchObject({ task: "fix typo", effort: "trivial" });
-		actor.send({ type: "APPROVE" });
+		actor.send({ type: "CONTINUE" });
 		actor.send({ type: "CHECKPOINT" });
 		actor.send({ type: "PLAN" });
 		expect(phase(actor)).toBe("DESIGN");
@@ -170,13 +176,13 @@ describe("pairMachine", () => {
 	it("discusses a refinement proposal read-only, and agrees from the discussion", () => {
 		const actor = started();
 		actor.send({ type: "REFINE", task: "t" });
-		expect(isProposingRefinement(actor.getSnapshot())).toBe(true);
+		expect(phase(actor)).toBe("PROPOSE");
 		expect(isDiscussing(actor.getSnapshot())).toBe(false);
 		actor.send({ type: "DISCUSS" });
 		expect(isDiscussing(actor.getSnapshot())).toBe(true);
 		expect(isReadOnly(actor.getSnapshot())).toBe(true);
-		actor.send({ type: "AGREE" });
-		expect(isApplyingRefinement(actor.getSnapshot())).toBe(true);
+		actor.send({ type: "CONTINUE" });
+		expect(phase(actor)).toBe("REFINE");
 		expect(isDiscussing(actor.getSnapshot())).toBe(false);
 	});
 });

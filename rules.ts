@@ -1,7 +1,7 @@
 // Hard deterministic rules. These run before any Decider and their verdicts are final;
 // the Decider only ever sees the cases these leave open.
 
-export type Phase = "IDLE" | "DESIGN" | "BUILD" | "CHECKPOINT" | "REFINE";
+export type Phase = "IDLE" | "DESIGN" | "BUILD" | "CHECKPOINT" | "PROPOSE" | "REFINE";
 export type Effort = "trivial" | "standard" | "complex";
 
 export const WRITE_TOOLS = new Set(["edit", "write"]);
@@ -53,12 +53,9 @@ export function midRunCheckpoint(thrashing: boolean, toolFailed: boolean): "forc
 	return "ask-decider";
 }
 
-export type ReviewGate = "plan" | "finish";
-
-// Which review gates the Decider may pass at all; anything else always goes to a person. Only small
-// work qualifies: a standard task's plan (trivial tasks skip DESIGN), or a trivial task's result.
-// Complex work and anything that hit the thrash limit are never eligible.
-export function deciderMayPass(gate: ReviewGate, effort: Effort, writesPerFile: Map<string, number>): boolean {
-	if (isThrashing(writesPerFile) !== undefined) return false;
-	return gate === "plan" ? effort === "standard" : effort === "trivial";
+// Whether the Decider may auto-finish a task at all; anything else always goes to a person. Only a
+// trivial task's result qualifies, and never one that hit the thrash limit. Plans are never
+// auto-approved: approving one is the user's confirm of the agent's resume_work call.
+export function deciderMayPass(effort: Effort, writesPerFile: Map<string, number>): boolean {
+	return effort === "trivial" && isThrashing(writesPerFile) === undefined;
 }

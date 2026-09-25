@@ -38,16 +38,14 @@ describe("midRunCheckpoint", () => {
 describe("deciderMayPass", () => {
 	const none = new Map<string, number>();
 
-	it("lets the Decider pass only a standard plan or a trivial result", () => {
-		expect(deciderMayPass("plan", "standard", none)).toBe(true);
-		expect(deciderMayPass("finish", "trivial", none)).toBe(true);
-		expect(deciderMayPass("finish", "standard", none)).toBe(false);
-		expect(deciderMayPass("plan", "complex", none)).toBe(false);
-		expect(deciderMayPass("finish", "complex", none)).toBe(false);
+	it("lets the Decider pass only a trivial result", () => {
+		expect(deciderMayPass("trivial", none)).toBe(true);
+		expect(deciderMayPass("standard", none)).toBe(false);
+		expect(deciderMayPass("complex", none)).toBe(false);
 	});
 
 	it("never lets the Decider pass work that hit the thrash limit", () => {
-		expect(deciderMayPass("finish", "trivial", new Map([["a.ts", 4]]))).toBe(false);
+		expect(deciderMayPass("trivial", new Map([["a.ts", 4]]))).toBe(false);
 	});
 });
 
