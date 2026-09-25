@@ -112,7 +112,12 @@ export function buildFooter(
 				const theme = ctx.ui.theme;
 
 				// Build left side: PHASE • path (branch)
-				const phaseText = theme.fg(phaseColor(snapshot), phase);
+				// Show effort classification in DESIGN mode
+				let phaseDisplay = phase;
+				if (phase === "DESIGN" && snapshot.context.effort) {
+					phaseDisplay = `${phase} (${snapshot.context.effort})`;
+				}
+				const phaseText = theme.fg(phaseColor(snapshot), phaseDisplay);
 				const compressedPath = compressPath(ctx.sessionManager.getCwd());
 				const branch = footerData.getGitBranch();
 				const pathText = branch ? `${compressedPath} (${branch})` : compressedPath;
