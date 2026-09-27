@@ -55,10 +55,6 @@ export function removeTodo(
   return { state: { ...state, todos: state.todos.filter((_, i) => i !== index) }, removed: todo };
 }
 
-export function clearTodos(state: TodoState): TodoState {
-  return { todos: [] };
-}
-
 /**
  * Manages todo state with session persistence.
  * Reconstructs from session on start, persists after every change.
@@ -101,7 +97,7 @@ export class TodoStore {
   }
 
   clear(): void {
-    this.state = clearTodos(this.state);
+    this.state = { todos: [] };
     this.persist();
   }
 
