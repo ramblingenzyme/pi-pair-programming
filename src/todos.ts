@@ -3,17 +3,15 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 export const TODOS_ENTRY = "pair-todos";
 
 export interface Todo {
-	id: number;
 	text: string;
 	done: boolean;
 }
 
 export interface TodoState {
 	todos: Todo[];
-	nextId: number;
 }
 
-const empty: TodoState = { todos: [], nextId: 1 };
+const empty: TodoState = { todos: [] };
 
 /**
  * Reconstruct todo state from the last pair-todos entry on the current branch.
@@ -31,28 +29,28 @@ export function reconstructState(ctx: ExtensionContext): TodoState {
 }
 
 export function addTodo(state: TodoState, text: string): { state: TodoState; added: Todo } {
-	const todo: Todo = { id: state.nextId, text, done: false };
+	const todo: Todo = { text, done: false };
 	return {
-		state: { todos: [...state.todos, todo], nextId: state.nextId + 1 },
+		state: { todos: [...state.todos, todo] },
 		added: todo,
 	};
 }
 
-export function toggleTodo(state: TodoState, id: number): { state: TodoState; toggled: Todo | undefined } {
-	const todo = state.todos.find((t) => t.id === id);
+export function toggleTodo(state: TodoState, index: number): { state: TodoState; toggled: Todo | undefined } {
+	const todo = state.todos[index];
 	if (!todo) return { state, toggled: undefined };
-	const updated = state.todos.map((t) => (t.id === id ? { ...t, done: !t.done } : t));
+	const updated = state.todos.map((t, i) => (i === index ? { ...t, done: !t.done } : t));
 	return { state: { ...state, todos: updated }, toggled: { ...todo, done: !todo.done } };
 }
 
-export function removeTodo(state: TodoState, id: number): { state: TodoState; removed: Todo | undefined } {
-	const todo = state.todos.find((t) => t.id === id);
+export function removeTodo(state: TodoState, index: number): { state: TodoState; removed: Todo | undefined } {
+	const todo = state.todos[index];
 	if (!todo) return { state, removed: undefined };
-	return { state: { ...state, todos: state.todos.filter((t) => t.id !== id) }, removed: todo };
+	return { state: { ...state, todos: state.todos.filter((_, i) => i !== index) }, removed: todo };
 }
 
 export function clearTodos(state: TodoState): TodoState {
-	return { todos: [], nextId: 1 };
+	return { todos: [] };
 }
 
 /**
@@ -60,7 +58,7 @@ export function clearTodos(state: TodoState): TodoState {
  * Reconstructs from session on start, persists after every change.
  */
 export class TodoStore {
-	private state: TodoState = { todos: [], nextId: 1 };
+	private state: TodoState = { todos: [] };
 	private pi: ExtensionAPI | undefined;
 
 	load(ctx: ExtensionContext): void {
@@ -82,15 +80,15 @@ export class TodoStore {
 		return added;
 	}
 
-	toggle(id: number): Todo | undefined {
-		const { state, toggled } = toggleTodo(this.state, id);
+	toggle(index: number): Todo | undefined {
+		const { state, toggled } = toggleTodo(this.state, index);
 		this.state = state;
 		this.persist();
 		return toggled;
 	}
 
-	remove(id: number): Todo | undefined {
-		const { state, removed } = removeTodo(this.state, id);
+	remove(index: number): Todo | undefined {
+		const { state, removed } = removeTodo(this.state, index);
 		this.state = state;
 		this.persist();
 		return removed;

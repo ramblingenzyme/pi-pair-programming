@@ -15,45 +15,121 @@ import {
 } from "./machine.ts";
 import type { TodoStore } from "./todos.ts";
 
+type TodoAction =
+	| { action: "select"; text: string }
+	| { action: "add" }
+	| { action: "cancel" };
+
+type ListState =
+	| { mode: "focused"; index: number }
+	| { mode: "empty" }
+	| { mode: "pendingDelete"; index: number };
+
 class TodoListComponent {
 	private todos: TodoStore;
 	private theme: Theme;
-	private onDone: (result: string | undefined) => void;
-	private selectedIndex = 0;
+	private onDone: (result: TodoAction) => void;
+	private listState: ListState;
 	private cachedWidth?: number;
 	private cachedLines?: string[];
 
-	constructor(todos: TodoStore, theme: Theme, onDone: (result: string | undefined) => void) {
+	constructor(todos: TodoStore, theme: Theme, onDone: (result: TodoAction) => void) {
 		this.todos = todos;
 		this.theme = theme;
 		this.onDone = onDone;
+		const state = todos.getState();
+		this.listState = state.todos.length > 0 ? { mode: "focused", index: 0 } : { mode: "empty" };
 	}
 
 	handleInput(data: string): void {
+		const key = this.normalizeKey(data);
 		const state = this.todos.getState();
-		if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
-			this.onDone(undefined);
-		} else if (matchesKey(data, "return")) {
-			if (state.todos.length > 0) {
-				this.onDone(state.todos[this.selectedIndex]?.text);
-			}
-		} else if (matchesKey(data, "up") && this.selectedIndex > 0) {
-			this.selectedIndex--;
-			this.cachedLines = undefined;
-		} else if (matchesKey(data, "down") && this.selectedIndex < state.todos.length - 1) {
-			this.selectedIndex++;
-			this.cachedLines = undefined;
-		} else if (data === "d" && state.todos.length > 0) {
-			const removed = state.todos[this.selectedIndex];
-			if (removed) {
-				this.todos.remove(removed.id);
-				const newState = this.todos.getState();
-				if (this.selectedIndex >= newState.todos.length) {
-					this.selectedIndex = Math.max(0, newState.todos.length - 1);
+		
+		switch (this.listState.mode) {
+			case "focused": {
+				switch (key) {
+					case "escape":
+					case "ctrl+c":
+						this.onDone({ action: "cancel" })
+						break;
+					case "return": {
+						const selected = state.todos[this.listState.index];
+						if (selected) {
+							this.onDone({ action: "select", text: selected.text });
+						}
+						break;
+					}
+					case "up":
+					case "k":
+						if (this.listState.index > 0) {
+							this.listState = { mode: "focused", index: this.listState.index - 1 };
+							this.cachedLines = undefined;
+						}
+						break;
+					case "down":
+					case "j":
+						if (this.listState.index < state.todos.length - 1) {
+							this.listState = { mode: "focused", index: this.listState.index + 1 };
+							this.cachedLines = undefined;
+						}
+						break;
+					case " ":
+						this.todos.toggle(this.listState.index);
+						this.cachedLines = undefined;
+						break;
+					case "a":
+						this.onDone({ action: "add" });
+						break;
+					case "d":
+						this.listState = { mode: "pendingDelete", index: this.listState.index };
+						this.cachedLines = undefined;
+						break;
 				}
-				this.cachedLines = undefined;
+				break;
+			}
+			case "empty": {
+				switch (key) {
+					case "escape":
+					case "ctrl+c":
+						this.onDone({ action: "cancel" });
+						return;
+					case "a":
+						this.onDone({ action: "add" });
+						break;
+				}
+				break;
+			}
+			case "pendingDelete": {
+				switch (key) {
+					case "escape":
+					case "ctrl+c":
+						this.listState = { mode: "focused", index: this.listState.index };
+						this.cachedLines = undefined;
+						break;
+					case "d":
+						this.todos.remove(this.listState.index);
+						const newState = this.todos.getState();
+						if (newState.todos.length === 0) {
+							this.listState = { mode: "empty" };
+						} else {
+							const newIndex = Math.min(this.listState.index, newState.todos.length - 1);
+							this.listState = { mode: "focused", index: newIndex };
+						}
+						this.cachedLines = undefined;
+						break;
+				}
+				break;
 			}
 		}
+	}
+
+	private normalizeKey(data: string): string {
+		if (matchesKey(data, "escape")) return "escape";
+		if (matchesKey(data, "ctrl+c")) return "ctrl+c";
+		if (matchesKey(data, "return")) return "return";
+		if (matchesKey(data, "up")) return "up";
+		if (matchesKey(data, "down")) return "down";
+		return data;
 	}
 
 	render(width: number): string[] {
@@ -81,17 +157,27 @@ class TodoListComponent {
 			lines.push("");
 
 			for (const [i, todo] of state.todos.entries()) {
-				const selected = i === this.selectedIndex;
+				const selected = (this.listState.mode === "focused" || this.listState.mode === "pendingDelete") && i === this.listState.index;
 				const prefix = selected ? th.fg("accent", "▸ ") : "  ";
 				const check = todo.done ? th.fg("success", "✓") : th.fg("dim", "○");
-				const id = th.fg("accent", `#${todo.id}`);
-				const text = todo.done ? th.fg("dim", todo.text) : selected ? th.fg("text", todo.text) : th.fg("muted", todo.text);
-				lines.push(truncateToWidth(`${prefix}${check} ${id} ${text}`, width));
+				const num = th.fg("accent", `#${i + 1}`);
+				const text = todo.done 
+					? th.fg("dim", th.strikethrough(todo.text)) 
+					: selected 
+						? th.fg("text", todo.text) 
+						: th.fg("muted", todo.text);
+				lines.push(truncateToWidth(`${prefix}${check} ${num} ${text}`, width));
 			}
 		}
 
 		lines.push("");
-		lines.push(truncateToWidth(`  ${th.fg("dim", "↑↓ navigate · Enter select · d delete · Esc cancel")}`, width));
+		if (this.listState.mode === "pendingDelete") {
+			lines.push(truncateToWidth(`  ${th.fg("warning", "Press d again to confirm deletion · Esc cancel delete")}`, width));
+		} else if (this.listState.mode === "focused") {
+			lines.push(truncateToWidth(`  ${th.fg("dim", "↑↓ j/k navigate · Enter select · Space toggle · a add · d delete · Esc unselect")}`, width));
+		} else {
+			lines.push(truncateToWidth(`  ${th.fg("dim", "↑↓ j/k navigate · Enter select · Space toggle · a add · d delete · Esc exit")}`, width));
+		}
 		lines.push("");
 
 		this.cachedWidth = width;
@@ -215,20 +301,38 @@ export function registerCommands(
 					ctx.ui.notify("/todo requires interactive mode to view the list", "error");
 					return;
 				}
-				const selected = await ctx.ui.custom<string | undefined>((_tui, theme, _kb, done) => {
-					return new TodoListComponent(todos, theme, (result) => done(result));
-				});
-				if (selected === undefined) return;
-				const prompt = await ctx.ui.editor("Send as prompt", selected);
+				await showTodoList(ctx);
+				return;
+			}
+			const added = todos.add(text);
+			const count = todos.getState().todos.length;
+			ctx.ui.notify(`Added #${count}: ${added.text}`, "info");
+		},
+	});
+
+	async function showTodoList(ctx: ExtensionContext): Promise<void> {
+		while (true) {
+			const result = await ctx.ui.custom<TodoAction>((_tui, theme, _kb, done) => {
+				return new TodoListComponent(todos, theme, (action) => done(action));
+			});
+			if (result.action === "cancel") return;
+			if (result.action === "select") {
+				const prompt = await ctx.ui.editor("Send as prompt", result.text);
 				if (prompt) {
 					pi.sendUserMessage(prompt);
 				}
 				return;
 			}
-			const added = todos.add(text);
-			ctx.ui.notify(`Added #${added.id}: ${added.text}`, "info");
-		},
-	});
+			// action === "add"
+			const newText = await ctx.ui.input("New todo");
+			if (newText?.trim()) {
+				const added = todos.add(newText.trim());
+				const count = todos.getState().todos.length;
+				ctx.ui.notify(`Added #${count}: ${added.text}`, "info");
+			}
+			// Loop back to show the updated list
+		}
+	}
 
 	const formatModelList = () => {
 		const s = session();
