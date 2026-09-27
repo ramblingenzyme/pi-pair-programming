@@ -12,6 +12,7 @@ import {
 	isReview,
 	phaseOf,
 } from "./machine.ts";
+import type { TodoStore } from "./todos.ts";
 
 /**
  * Compress a path fish-style: abbreviate parent directories to first letter, keep last full.
@@ -91,10 +92,11 @@ function contextColor(percent: number | null): "dim" | "warning" | "error" {
 
 /**
  * Build the custom footer factory for ctx.ui.setFooter().
- * Takes a PairActor to access the current state.
+ * Takes a PairActor to access the current state and a TodoStore for todo count.
  */
 export function buildFooter(
 	actor: PairActor,
+	todos: TodoStore,
 	ctx: ExtensionContext,
 ) {
 	let requestRender: (() => void) | undefined;
@@ -111,7 +113,7 @@ export function buildFooter(
 				const phase = phaseOf(snapshot);
 				const theme = ctx.ui.theme;
 
-				// Build left side: PHASE • path (branch)
+				// Build left side: PHASE • path (branch) • todos
 				// Show effort classification in DESIGN mode
 				let phaseDisplay = phase;
 				if (phase === "DESIGN" && snapshot.context.effort) {
@@ -121,7 +123,15 @@ export function buildFooter(
 				const compressedPath = compressPath(ctx.sessionManager.getCwd());
 				const branch = footerData.getGitBranch();
 				const pathText = branch ? `${compressedPath} (${branch})` : compressedPath;
-				const left = `${phaseText} ${theme.fg("dim", `• ${pathText}`)}`;
+				
+				let left = `${phaseText} ${theme.fg("dim", `• ${pathText}`)}`;
+				
+				// Add todo count if there are pending todos
+				const pendingTodos = todos.pendingCount();
+				if (pendingTodos > 0) {
+					left += ` ${theme.fg("dim", "•")} ${theme.fg("accent", `${pendingTodos} todo${pendingTodos === 1 ? "" : "s"}`)}`;
+				}
+				
 				const leftWidth = visibleWidth(left);
 
 				// Build right side: model (thinking) • $cost • context%↑input ↓output

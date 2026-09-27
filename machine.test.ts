@@ -131,6 +131,20 @@ describe("pairMachine", () => {
 		expect(phase(actor)).toBe("BUILD");
 	});
 
+	it("goes back to BUILD from a refine checkpoint with RESUME_BUILD", () => {
+		const actor = started();
+		actor.send({ type: "TASK", task: "t", effort: "trivial" });
+		actor.send({ type: "CHECKPOINT" });
+		actor.send({ type: "REFINE" });
+		actor.send({ type: "CONTINUE" });
+		actor.send({ type: "CHECKPOINT" });
+		expect(phase(actor)).toBe("CHECKPOINT");
+		expect(actor.getSnapshot().context.refining).toBe(true);
+		actor.send({ type: "RESUME_BUILD" });
+		expect(phase(actor)).toBe("BUILD");
+		expect(actor.getSnapshot().context.refining).toBe(false);
+	});
+
 	it("treats DESIGN and CHECKPOINT as read-only, BUILD and REFINE as working", () => {
 		const actor = started();
 		actor.send({ type: "TASK", task: "t", effort: "standard" });

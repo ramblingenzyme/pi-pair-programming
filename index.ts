@@ -12,6 +12,7 @@ import { registerCommands, registerTools } from "./commands.ts";
 import { type Decider, RuleDecider } from "./decider.ts";
 import { buildFooter } from "./footer.ts";
 import { LlmDecider } from "./llm-decider.ts";
+import { TodoStore } from "./todos.ts";
 import {
 	type PairActor,
 	type PairEvent,
@@ -77,10 +78,12 @@ export function setPersistedJudgeModel(model: string | undefined): void {
 
 export default function pairProgrammer(pi: ExtensionAPI) {
 	const actor: PairActor = new PairActorImpl();
+	const todos = new TodoStore();
 	let session: ExtensionContext | undefined;
 	let lastUserText = "";
 	let footerRequestRender: (() => void) | undefined;
 
+	todos.attach(pi);
 	judgeModelOverride = getPersistedJudgeModel();
 
 	pi.registerFlag("pair-rules", {
@@ -135,10 +138,9 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 	const writeCounts = () => new Map(context().writesPerFile);
 
 	function applyPhase(snapshot: PairSnapshot): void {
-		const managed = new Set([...WRITE_TOOLS, RESUME_TOOL, CHECKPOINT_TOOL]);
+		const managed = new Set([RESUME_TOOL, CHECKPOINT_TOOL]);
 		pi.setActiveTools([
 			...pi.getActiveTools().filter((t) => !managed.has(t)),
-			...(isReadOnly(snapshot) ? [] : WRITE_TOOLS),
 			...(isDiscussing(snapshot) ? [RESUME_TOOL] : []),
 			...(isWorking(snapshot) ? [CHECKPOINT_TOOL] : []),
 		]);
@@ -167,25 +169,31 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 	// selector stays away so the conversation can run; /continue and /done leave.
 	async function checkpointMenu(ctx: ExtensionContext) {
 		if (phase() !== "CHECKPOINT" || isDiscussing(actor.getSnapshot()) || !ctx.hasUI) return;
-		const continueLabel = context().refining ? "Continue refining" : "Continue building";
-		const choice = await ctx.ui.select("Checkpoint review", [
-			"Discuss",
-			continueLabel,
-			"Propose refinements",
-			"Task done",
-		]);
-		if (choice === continueLabel || choice === "Propose refinements") {
-			return moveOn({ type: choice === continueLabel ? "CONTINUE" : "REFINE" });
+		const options = ["Discuss"];
+		if (context().refining) {
+			options.push("Continue refining", "Continue building");
+		} else {
+			options.push("Continue building");
 		}
-		if (choice === "Task done") {
-			actor.send({ type: "DONE" });
-			return;
+		options.push("Propose refinements", "Task done");
+		const choice = await ctx.ui.select("Checkpoint review", options);
+		switch (choice) {
+			case "Continue refining":
+				return moveOn({ type: "CONTINUE" });
+			case "Continue building":
+				return moveOn({ type: "RESUME_BUILD" });
+			case "Propose refinements":
+				return moveOn({ type: "REFINE" });
+			case "Task done":
+				actor.send({ type: "DONE" });
+				return;
 		}
 		ctx.ui.notify(DISCUSS_HINT, "info");
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
 		session = ctx;
+		todos.load(ctx);
 		const saved = ctx.sessionManager
 			.getBranch()
 			.filter((e) => e.type === "custom" && e.customType === STATE_ENTRY)
@@ -202,7 +210,7 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 		actor.start();
 
 		// Install custom footer
-		const { factory, requestRender } = buildFooter(actor, ctx);
+		const { factory, requestRender } = buildFooter(actor, todos, ctx);
 		footerRequestRender = requestRender;
 		ctx.ui.setFooter(factory);
 	});
@@ -323,8 +331,8 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 		if (context().task) pi.sendMessage(msg());
 	});
 
-	registerCommands(pi, actor, decider, () => session, () => judgeModelOverride, (v) => { judgeModelOverride = v; });
-	registerTools(pi, actor, () => lastUserText);
+	registerCommands(pi, actor, decider, todos, () => session, () => judgeModelOverride, (v) => { judgeModelOverride = v; });
+	registerTools(pi, actor, todos, () => lastUserText);
 }
 
 function assistantText(message: AgentMessage): string {

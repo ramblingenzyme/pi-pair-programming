@@ -23,7 +23,7 @@ Judgment calls default to the user's current session model with thinking turned 
 | **IDLE** | Nothing is tracked. | Your next prompt starts a task. |
 | **DESIGN** | Read only: edit and write are removed, and bash is limited to non-mutating commands. It explores the code with you and captures ideas, and writes a plan only when you ask for one. | You approve the plan: the agent proposes it with `resume_work` and you confirm, or you type `/continue`. |
 | **BUILD** | Everything. | A checkpoint, forced, judged, or requested by the agent; or the agent finishing. |
-| **CHECKPOINT** | Read only. It summarises its work, then discusses it with you. | You continue, re-plan, refine, or finish. |
+| **CHECKPOINT** | Read only. It summarises its work, then discusses it with you. | You continue, re-plan, refine, or finish. From a refine checkpoint, you can also go back to building. |
 | **PROPOSE** | Read only. It proposes what is worth compressing, meaning duplication that already exists in the code, not terseness. You discuss the proposal the way you discuss a checkpoint. | You agree to the proposal. |
 | **REFINE** | It compresses what you agreed, without changing behaviour. | The agent calls `request_checkpoint`, or a failure stops it. |
 
@@ -37,7 +37,7 @@ The rules of the whole workflow are appended to the system prompt. A short banne
 - **Mid-run in REFINE:** the reverse applies. A failed tool result forces a checkpoint at once, because a refactor that breaks something has a bug and shouldn't be fixed forward.
 - **When a run finishes:** the review appears. The agent's last message serves as the summary.
 
-At the review, choose **Discuss**, **Continue building** (or **Continue refining**), **Propose refinements**, or **Task done**. Typing a message instead starts a discussion, and the selector stays away until you leave with a command. The status line shows how to leave.
+At the review, choose **Discuss**, **Continue building** (or **Continue refining** and **Continue building** from a refine checkpoint), **Propose refinements**, or **Task done**. Typing a message instead starts a discussion, and the selector stays away until you leave with a command. The status line shows how to leave.
 
 ### Who decides what
 

@@ -13,11 +13,11 @@ You work in phases a human moves you through. Each turn starts with a [PHASE: ..
 - DESIGN: read-only. Explore with the user until they ask for a plan (see below). Then write a concrete plan: files to
   change, what changes, how you will verify.
 - BUILD: implement the approved plan.
-- CHECKPOINT: read-only. Summarize for review, then discuss the work with the user.
+- CHECKPOINT: read-only. Summarize for review, then discuss the work with the user. From a refine checkpoint, you can continue refining or go back to building.
 - PROPOSE: read-only. Propose what, if anything, is worth compressing and why, and what you would leave alone. Then discuss it with the user.
 - REFINE: carry out the agreed compression without changing behaviour, in rounds you verify by running the tests.
 
-In read-only phases edit and write tools are removed and bash is read-only; do not try to work around this.
+In read-only phases (DESIGN, CHECKPOINT, PROPOSE) you cannot edit or write files. Bash is read-only. Do not call edit, write, or mutating bash commands; they will be blocked. Call ${RESUME_TOOL} to propose moving to a working phase.
 
 In DESIGN and in discussions, work as a thinking partner: capture the user's ideas, explore the codebase to answer
 questions of feasibility and correctness, and say what you find. Do not produce an execution plan, and do not ask for
@@ -52,6 +52,8 @@ export type PairEvent =
 	/** From IDLE it starts a task; the task text says what to look at. From a checkpoint it needs none. */
 	| { type: "REFINE"; task?: string }
 	| { type: "CONTINUE" }
+	/** From a refine checkpoint, go back to BUILD instead of REFINE. */
+	| { type: "RESUME_BUILD" }
 	| { type: "DONE" };
 
 // Where the agent has handed something over and it is the user's move: a one-time selector, then
@@ -113,6 +115,7 @@ export const pairMachine = setup({
 					...review,
 					on: {
 						CONTINUE: [{ guard: "refining", target: "REFINE" }, { target: "BUILD" }],
+						RESUME_BUILD: { target: "BUILD", actions: "enterBuild" },
 						PLAN: "DESIGN",
 						REFINE: "PROPOSE",
 					},

@@ -1,4 +1,5 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import type { Decider } from "./decider.ts";
 import { setPersistedJudgeModel } from "./index.ts";
@@ -12,11 +13,103 @@ import {
 	CHECKPOINT_TOOL,
 	RESUME_TOOL,
 } from "./machine.ts";
+import type { TodoStore } from "./todos.ts";
+
+class TodoListComponent {
+	private todos: TodoStore;
+	private theme: Theme;
+	private onDone: (result: string | undefined) => void;
+	private selectedIndex = 0;
+	private cachedWidth?: number;
+	private cachedLines?: string[];
+
+	constructor(todos: TodoStore, theme: Theme, onDone: (result: string | undefined) => void) {
+		this.todos = todos;
+		this.theme = theme;
+		this.onDone = onDone;
+	}
+
+	handleInput(data: string): void {
+		const state = this.todos.getState();
+		if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
+			this.onDone(undefined);
+		} else if (matchesKey(data, "return")) {
+			if (state.todos.length > 0) {
+				this.onDone(state.todos[this.selectedIndex]?.text);
+			}
+		} else if (matchesKey(data, "up") && this.selectedIndex > 0) {
+			this.selectedIndex--;
+			this.cachedLines = undefined;
+		} else if (matchesKey(data, "down") && this.selectedIndex < state.todos.length - 1) {
+			this.selectedIndex++;
+			this.cachedLines = undefined;
+		} else if (data === "d" && state.todos.length > 0) {
+			const removed = state.todos[this.selectedIndex];
+			if (removed) {
+				this.todos.remove(removed.id);
+				const newState = this.todos.getState();
+				if (this.selectedIndex >= newState.todos.length) {
+					this.selectedIndex = Math.max(0, newState.todos.length - 1);
+				}
+				this.cachedLines = undefined;
+			}
+		}
+	}
+
+	render(width: number): string[] {
+		if (this.cachedLines && this.cachedWidth === width) {
+			return this.cachedLines;
+		}
+
+		const lines: string[] = [];
+		const th = this.theme;
+		const state = this.todos.getState();
+
+		lines.push("");
+		const title = th.fg("accent", " Todos ");
+		const headerLine =
+			th.fg("borderMuted", "─".repeat(3)) + title + th.fg("borderMuted", "─".repeat(Math.max(0, width - 10)));
+		lines.push(truncateToWidth(headerLine, width));
+		lines.push("");
+
+		if (state.todos.length === 0) {
+			lines.push(truncateToWidth(`  ${th.fg("dim", "No todos yet. Use /todo <text> to add one.")}`, width));
+		} else {
+			const done = state.todos.filter((t) => t.done).length;
+			const total = state.todos.length;
+			lines.push(truncateToWidth(`  ${th.fg("muted", `${done}/${total} completed`)}`, width));
+			lines.push("");
+
+			for (const [i, todo] of state.todos.entries()) {
+				const selected = i === this.selectedIndex;
+				const prefix = selected ? th.fg("accent", "▸ ") : "  ";
+				const check = todo.done ? th.fg("success", "✓") : th.fg("dim", "○");
+				const id = th.fg("accent", `#${todo.id}`);
+				const text = todo.done ? th.fg("dim", todo.text) : selected ? th.fg("text", todo.text) : th.fg("muted", todo.text);
+				lines.push(truncateToWidth(`${prefix}${check} ${id} ${text}`, width));
+			}
+		}
+
+		lines.push("");
+		lines.push(truncateToWidth(`  ${th.fg("dim", "↑↓ navigate · Enter select · d delete · Esc cancel")}`, width));
+		lines.push("");
+
+		this.cachedWidth = width;
+		this.cachedLines = lines;
+		return lines;
+	}
+
+	invalidate(): void {
+		this.cachedWidth = undefined;
+		this.cachedLines = undefined;
+	}
+}
 
 export function registerCommands(
 	pi: ExtensionAPI,
 	actor: PairActor,
 	decider: Decider,
+	todos: TodoStore,
 	session: () => ExtensionContext | undefined,
 	getJudgeModelOverride: () => string | undefined,
 	setJudgeModelOverride: (v: string | undefined) => void,
@@ -113,6 +206,37 @@ export function registerCommands(
 		},
 	});
 
+	pi.registerCommand("todo", {
+		description: "Add a todo: things that come up during work but don't need to be done now",
+		handler: async (args, ctx) => {
+			const text = args.trim();
+			if (!text) {
+				ctx.ui.notify("Usage: /todo <text>", "info");
+				return;
+			}
+			const added = todos.add(text);
+			ctx.ui.notify(`Added #${added.id}: ${added.text}`, "info");
+		},
+	});
+
+	pi.registerCommand("todos", {
+		description: "Show all todos; select one to edit and send as a prompt",
+		handler: async (_args, ctx) => {
+			if (ctx.mode !== "tui") {
+				ctx.ui.notify("/todos requires interactive mode", "error");
+				return;
+			}
+			const selected = await ctx.ui.custom<string | undefined>((_tui, theme, _kb, done) => {
+				return new TodoListComponent(todos, theme, (result) => done(result));
+			});
+			if (selected === undefined) return;
+			const text = await ctx.ui.input("Send as prompt", selected);
+			if (text) {
+				pi.sendUserMessage(text);
+			}
+		},
+	});
+
 	const formatModelList = () => {
 		const s = session();
 		if (!s) return [];
@@ -203,6 +327,7 @@ export function registerCommands(
 export function registerTools(
 	pi: ExtensionAPI,
 	actor: PairActor,
+	todos: TodoStore,
 	lastUserText: () => string,
 ): void {
 	const context = () => actor.getSnapshot().context;
@@ -257,4 +382,5 @@ export function registerTools(
 			return { content: [{ type: "text", text: bannerText() }], details: undefined };
 		},
 	});
+
 }
