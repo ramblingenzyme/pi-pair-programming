@@ -18,14 +18,14 @@ Judgment calls default to the user's current session model with thinking turned 
 
 ## Phases
 
-| Phase | What the agent can do | How it ends |
-|---|---|---|
-| **IDLE** | Nothing is tracked. | Your next prompt starts a task. |
-| **DESIGN** | Read only: edit and write are removed, and bash is limited to non-mutating commands. It explores the code with you and captures ideas, and writes a plan only when you ask for one. | You approve the plan: the agent proposes it with `resume_work` and you confirm, or you type `/continue`. |
-| **BUILD** | Everything. | A checkpoint, forced, judged, or requested by the agent; or the agent finishing. |
-| **CHECKPOINT** | Read only. It summarises its work, then discusses it with you. | You continue, re-plan, refine, or finish. From a refine checkpoint, you can also go back to building. |
-| **PROPOSE** | Read only. It proposes what is worth compressing, meaning duplication that already exists in the code, not terseness. You discuss the proposal the way you discuss a checkpoint. | You agree to the proposal. |
-| **REFINE** | It compresses what you agreed, without changing behaviour. | The agent calls `request_checkpoint`, or a failure stops it. |
+| Phase          | What the agent can do                                                                                                                                                               | How it ends                                                                                              |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| **IDLE**       | Nothing is tracked.                                                                                                                                                                 | Your next prompt starts a task.                                                                          |
+| **DESIGN**     | Read only: edit and write are removed, and bash is limited to non-mutating commands. It explores the code with you and captures ideas, and writes a plan only when you ask for one. | You approve the plan: the agent proposes it with `resume_work` and you confirm, or you type `/continue`. |
+| **BUILD**      | Everything.                                                                                                                                                                         | A checkpoint, forced, judged, or requested by the agent; or the agent finishing.                         |
+| **CHECKPOINT** | Read only. It summarises its work, then discusses it with you.                                                                                                                      | You continue, re-plan, refine, or finish. From a refine checkpoint, you can also go back to building.    |
+| **PROPOSE**    | Read only. It proposes what is worth compressing, meaning duplication that already exists in the code, not terseness. You discuss the proposal the way you discuss a checkpoint.    | You agree to the proposal.                                                                               |
+| **REFINE**     | It compresses what you agreed, without changing behaviour.                                                                                                                          | The agent calls `request_checkpoint`, or a failure stops it.                                             |
 
 Each new prompt in IDLE is classified by effort. **Trivial** tasks go straight to BUILD. **Standard** and **complex** tasks start in DESIGN. For complex tasks the agent is told to explore the code before proposing a plan.
 
@@ -43,20 +43,20 @@ At the review, choose **Discuss**, **Continue building** (or **Continue refining
 
 - **Hard rules run first, and the judge can't override them.** These are destructive-command confirmation, read-only enforcement, the 4-edit limit, and which review gates the judge may pass at all.
 - **The judge handles the ambiguous middle:** effort classification, and whether to stop for a mid-run checkpoint. It may also finish a trivial task without review.
-- **You decide everything else:** approving plans, agreeing refinements, and leaving checkpoints. The agent can *propose* moving on with `resume_work`, but you confirm it.
+- **You decide everything else:** approving plans, agreeing refinements, and leaving checkpoints. The agent can _propose_ moving on with `resume_work`, but you confirm it.
 
 See [docs/adr](docs/adr) for the reasoning.
 
 ## Commands
 
-| Command | Effect |
-|---|---|
-| `/design <task>` | Start a task in DESIGN whatever its effort. At a checkpoint, `/design` goes back to DESIGN. |
-| `/refine [what]` | Start a refinement task. At a checkpoint, propose refinements to the current task. |
-| `/continue` | Move on: approve the plan in DESIGN, leave a checkpoint to resume building or refining, or agree a refinement proposal. |
-| `/done` | End the current task. |
-| `/phase` | Show the phase, effort and task. |
-| `/judge-model [provider/model-id]` | Show or set the model for judgment calls. `/judge-model default` resets. |
+| Command                            | Effect                                                                                                                  |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `/design <task>`                   | Start a task in DESIGN whatever its effort. At a checkpoint, `/design` goes back to DESIGN.                             |
+| `/refine [what]`                   | Start a refinement task. At a checkpoint, propose refinements to the current task.                                      |
+| `/continue`                        | Move on: approve the plan in DESIGN, leave a checkpoint to resume building or refining, or agree a refinement proposal. |
+| `/done`                            | End the current task.                                                                                                   |
+| `/phase`                           | Show the phase, effort and task.                                                                                        |
+| `/judge-model [provider/model-id]` | Show or set the model for judgment calls. `/judge-model default` resets.                                                |
 
 Running `rm -rf`, `sudo`, `git push --force`, `git reset --hard` or similar asks for confirmation in every phase. In print mode, with no UI to confirm, those commands are blocked.
 
@@ -92,12 +92,12 @@ pnpm test    # node:test with expect-native
 pnpm check   # tsc
 ```
 
-| File | Contents |
-|---|---|
-| `index.ts` | Hook wiring: tool gating, gates, commands, agent tools, banners. |
-| `machine.ts` | The xstate phase machine. |
-| `rules.ts` | Hard rules. |
-| `decider.ts` | The `Decider` interface and the keyword-rule implementation. |
-| `llm-decider.ts` | The LLM judge. |
+| File             | Contents                                                         |
+| ---------------- | ---------------------------------------------------------------- |
+| `index.ts`       | Hook wiring: tool gating, gates, commands, agent tools, banners. |
+| `machine.ts`     | The xstate phase machine.                                        |
+| `rules.ts`       | Hard rules.                                                      |
+| `decider.ts`     | The `Decider` interface and the keyword-rule implementation.     |
+| `llm-decider.ts` | The LLM judge.                                                   |
 
 The source must stay erasable TypeScript: no enums and no constructor parameter properties. `node --test` runs files through Node's type stripping, and `tsconfig.json` enforces this with `erasableSyntaxOnly`.

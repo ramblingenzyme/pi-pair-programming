@@ -21,32 +21,39 @@ The agent's current phase determines what tools are available and what it should
  * If `eventInstructions` is provided (from pi or another extension), it is
  * appended after our workflow context.
  */
-export function buildCompactionInstructions(snapshot: PairSnapshot, eventInstructions?: string): string {
-	const phase = phaseOf(snapshot);
-	const { task, effort, writesPerFile, refining } = snapshot.context;
+export function buildCompactionInstructions(
+  snapshot: PairSnapshot,
+  eventInstructions?: string,
+): string {
+  const phase = phaseOf(snapshot);
+  const { task, effort, writesPerFile, refining } = snapshot.context;
 
-	const parts: string[] = [WORKFLOW_CONTEXT];
+  const parts: string[] = [WORKFLOW_CONTEXT];
 
-	if (phase === "IDLE" && !task) {
-		parts.push("\nCurrent state: IDLE with no active task. The session may contain completed work from earlier.");
-	} else {
-		const stateLines: string[] = [`\nCurrent state:
-- Phase: ${phase}`];
-		if (task) stateLines.push(`- Task: ${task}`);
-		if (effort) stateLines.push(`- Effort: ${effort}`);
-		if (refining) stateLines.push("- Refining: yes (behaviour-preserving compression in progress)");
+  if (phase === "IDLE" && !task) {
+    parts.push(
+      "\nCurrent state: IDLE with no active task. The session may contain completed work from earlier.",
+    );
+  } else {
+    const stateLines: string[] = [
+      `\nCurrent state:
+- Phase: ${phase}`,
+    ];
+    if (task) stateLines.push(`- Task: ${task}`);
+    if (effort) stateLines.push(`- Effort: ${effort}`);
+    if (refining) stateLines.push("- Refining: yes (behaviour-preserving compression in progress)");
 
-		if (writesPerFile.length > 0) {
-			const writes = writesPerFile.map(([path, count]) => `${path} (${count})`).join(", ");
-			stateLines.push(`- Writes since last checkpoint: ${writes}`);
-		}
+    if (writesPerFile.length > 0) {
+      const writes = writesPerFile.map(([path, count]) => `${path} (${count})`).join(", ");
+      stateLines.push(`- Writes since last checkpoint: ${writes}`);
+    }
 
-		parts.push(stateLines.join("\n"));
-	}
+    parts.push(stateLines.join("\n"));
+  }
 
-	if (eventInstructions) {
-		parts.push(`\nAdditional instructions: ${eventInstructions}`);
-	}
+  if (eventInstructions) {
+    parts.push(`\nAdditional instructions: ${eventInstructions}`);
+  }
 
-	return parts.join("\n");
+  return parts.join("\n");
 }

@@ -11,5 +11,23 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["*.ts", "src/commands.ts", "src/compaction.test.ts", "src/compaction.ts", "src/decider.test.ts", "src/decider.ts", "src/footer.ts", "src/judge-config.ts", "src/llm-decider.test.ts", "src/llm-decider.ts", "src/machine.test.ts", "src/machine.ts", "src/rules.test.ts", "src/rules.ts", "src/session-hooks.ts", "src/todos.ts", "src/turn-hooks.ts"]
+  "include": [
+    "*.ts",
+    "src/commands.ts",
+    "src/compaction.test.ts",
+    "src/compaction.ts",
+    "src/decider.test.ts",
+    "src/decider.ts",
+    "src/footer.ts",
+    "src/judge-config.ts",
+    "src/llm-decider.test.ts",
+    "src/llm-decider.ts",
+    "src/machine.test.ts",
+    "src/machine.ts",
+    "src/rules.test.ts",
+    "src/rules.ts",
+    "src/session-hooks.ts",
+    "src/todos.ts",
+    "src/turn-hooks.ts"
+  ]
 }

@@ -45,6 +45,7 @@ pnpm check   # tsc
 ```
 
 **Constraints:**
+
 - Erasable TypeScript only: no enums, no constructor parameter properties
 - `tsconfig.json` enforces `erasableSyntaxOnly`
 - Node 22.19+ (pi's minimum)
@@ -58,6 +59,7 @@ Judge calls are recorded as `pair-judge` entries with the question, raw reply or
 ## ADRs
 
 See `docs/adr/` for architectural decisions:
+
 - Hard rules before a swappable decider
 - Agent claims may add oversight, never remove it
 - xstate phase machine with persisted snapshots

@@ -7,6 +7,7 @@
 Every phase-transition judgment goes through one `Decider` interface (`classifyEffort`, `shouldCheckpoint`, `canSkipReview`). Deterministic rules in `rules.ts` run before it and have the final say. The Decider is only asked about the cases the rules leave open.
 
 The rules are:
+
 - destructive-command confirmation;
 - read-only enforcement;
 - the 4-edit thrash limit;

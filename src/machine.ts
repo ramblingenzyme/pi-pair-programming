@@ -1,4 +1,11 @@
-import { assign, createActor, setup, type Actor, type SnapshotFrom, type Subscription } from "xstate";
+import {
+  assign,
+  createActor,
+  setup,
+  type Actor,
+  type SnapshotFrom,
+  type Subscription,
+} from "xstate";
 import type { Effort, Phase } from "./rules.ts";
 
 export const RESUME_TOOL = "resume_work";
@@ -34,98 +41,106 @@ piece says only what is unique to it. It is not making code shorter, and not add
 not exist yet. Measure it by the total cost to a reader and maintainer.`;
 
 export interface PairContext {
-	task?: string;
-	effort?: Effort;
-	/** Writes since BUILD was last entered; entries rather than a Map so snapshots persist as JSON. */
-	writesPerFile: [string, number][];
-	/** Whether the current checkpoint came from REFINE, so CONTINUE returns there rather than to BUILD. */
-	refining: boolean;
+  task?: string;
+  effort?: Effort;
+  /** Writes since BUILD was last entered; entries rather than a Map so snapshots persist as JSON. */
+  writesPerFile: [string, number][];
+  /** Whether the current checkpoint came from REFINE, so CONTINUE returns there rather than to BUILD. */
+  refining: boolean;
 }
 
 export type PairEvent =
-	| { type: "TASK"; task: string; effort: Effort }
-	/** Like TASK but always plans first, whatever the effort. From a checkpoint it re-plans and needs no task. */
-	| { type: "PLAN"; task?: string; effort?: Effort }
-	| { type: "WRITE"; path: string }
-	| { type: "CHECKPOINT" }
-	| { type: "DISCUSS" }
-	/** From IDLE it starts a task; the task text says what to look at. From a checkpoint it needs none. */
-	| { type: "REFINE"; task?: string }
-	| { type: "CONTINUE" }
-	/** From a refine checkpoint, go back to BUILD instead of REFINE. */
-	| { type: "RESUME_BUILD" }
-	| { type: "DONE" };
+  | { type: "TASK"; task: string; effort: Effort }
+  /** Like TASK but always plans first, whatever the effort. From a checkpoint it re-plans and needs no task. */
+  | { type: "PLAN"; task?: string; effort?: Effort }
+  | { type: "WRITE"; path: string }
+  | { type: "CHECKPOINT" }
+  | { type: "DISCUSS" }
+  /** From IDLE it starts a task; the task text says what to look at. From a checkpoint it needs none. */
+  | { type: "REFINE"; task?: string }
+  | { type: "CONTINUE" }
+  /** From a refine checkpoint, go back to BUILD instead of REFINE. */
+  | { type: "RESUME_BUILD" }
+  | { type: "DONE" };
 
 // Where the agent has handed something over and it is the user's move: a one-time selector, then
 // discussion once the user starts talking.
 const review = {
-	tags: ["readOnly", "review"],
-	initial: "review",
-	states: {
-		review: { on: { DISCUSS: "discuss" } },
-		discuss: { tags: "discussing" },
-	},
+  tags: ["readOnly", "review"],
+  initial: "review",
+  states: {
+    review: { on: { DISCUSS: "discuss" } },
+    discuss: { tags: "discussing" },
+  },
 } as const;
 
 export const pairMachine = setup({
-	types: { context: {} as PairContext, events: {} as PairEvent },
-	guards: {
-		trivial: ({ event }) => event.type === "TASK" && event.effort === "trivial",
-		refining: ({ context }) => context.refining,
-	},
-	actions: {
-		startTask: assign(({ event }) =>
-			event.type === "TASK" || event.type === "PLAN" ? { task: event.task, effort: event.effort } : {},
-		),
-		startRefineTask: assign(({ event }) => (event.type === "REFINE" ? { task: event.task, effort: undefined } : {})),
-		clearTask: assign({ task: undefined, effort: undefined }),
-		enterBuild: assign({ writesPerFile: [], refining: false }),
-		enterRefine: assign({ writesPerFile: [], refining: true }),
-		countWrite: assign({
-			writesPerFile: ({ context, event }) => {
-				if (event.type !== "WRITE") return context.writesPerFile;
-				const counts = new Map(context.writesPerFile);
-				counts.set(event.path, (counts.get(event.path) ?? 0) + 1);
-				return [...counts];
-			},
-		}),
-	},
+  types: { context: {} as PairContext, events: {} as PairEvent },
+  guards: {
+    trivial: ({ event }) => event.type === "TASK" && event.effort === "trivial",
+    refining: ({ context }) => context.refining,
+  },
+  actions: {
+    startTask: assign(({ event }) =>
+      event.type === "TASK" || event.type === "PLAN"
+        ? { task: event.task, effort: event.effort }
+        : {},
+    ),
+    startRefineTask: assign(({ event }) =>
+      event.type === "REFINE" ? { task: event.task, effort: undefined } : {},
+    ),
+    clearTask: assign({ task: undefined, effort: undefined }),
+    enterBuild: assign({ writesPerFile: [], refining: false }),
+    enterRefine: assign({ writesPerFile: [], refining: true }),
+    countWrite: assign({
+      writesPerFile: ({ context, event }) => {
+        if (event.type !== "WRITE") return context.writesPerFile;
+        const counts = new Map(context.writesPerFile);
+        counts.set(event.path, (counts.get(event.path) ?? 0) + 1);
+        return [...counts];
+      },
+    }),
+  },
 }).createMachine({
-	id: "pair",
-	initial: "IDLE",
-	context: { writesPerFile: [], refining: false },
-	states: {
-		IDLE: {
-			on: {
-				TASK: [
-					{ guard: "trivial", target: "task.BUILD", actions: "startTask" },
-					{ target: "task.DESIGN", actions: "startTask" },
-				],
-				PLAN: { target: "task.DESIGN", actions: "startTask" },
-				REFINE: { target: "task.PROPOSE", actions: "startRefineTask" },
-			},
-		},
-		task: {
-			initial: "DESIGN",
-			on: { DONE: { target: "IDLE", actions: "clearTask" } },
-			states: {
-				DESIGN: { tags: ["readOnly", "discussing"], on: { CONTINUE: "BUILD" } },
-				BUILD: { entry: "enterBuild", tags: "working", on: { WRITE: { actions: "countWrite" }, CHECKPOINT: "CHECKPOINT" } },
-				CHECKPOINT: {
-					...review,
-					on: {
-						CONTINUE: [{ guard: "refining", target: "REFINE" }, { target: "BUILD" }],
-						RESUME_BUILD: { target: "BUILD", actions: "enterBuild" },
-						PLAN: "DESIGN",
-						REFINE: "PROPOSE",
-					},
-				},
-				// Behaviour-preserving compression. It starts by agreeing what is worth compressing.
-				PROPOSE: { ...review, entry: "enterRefine", on: { CONTINUE: "REFINE" } },
-				REFINE: { tags: "working", on: { CHECKPOINT: "CHECKPOINT" } },
-			},
-		},
-	},
+  id: "pair",
+  initial: "IDLE",
+  context: { writesPerFile: [], refining: false },
+  states: {
+    IDLE: {
+      on: {
+        TASK: [
+          { guard: "trivial", target: "task.BUILD", actions: "startTask" },
+          { target: "task.DESIGN", actions: "startTask" },
+        ],
+        PLAN: { target: "task.DESIGN", actions: "startTask" },
+        REFINE: { target: "task.PROPOSE", actions: "startRefineTask" },
+      },
+    },
+    task: {
+      initial: "DESIGN",
+      on: { DONE: { target: "IDLE", actions: "clearTask" } },
+      states: {
+        DESIGN: { tags: ["readOnly", "discussing"], on: { CONTINUE: "BUILD" } },
+        BUILD: {
+          entry: "enterBuild",
+          tags: "working",
+          on: { WRITE: { actions: "countWrite" }, CHECKPOINT: "CHECKPOINT" },
+        },
+        CHECKPOINT: {
+          ...review,
+          on: {
+            CONTINUE: [{ guard: "refining", target: "REFINE" }, { target: "BUILD" }],
+            RESUME_BUILD: { target: "BUILD", actions: "enterBuild" },
+            PLAN: "DESIGN",
+            REFINE: "PROPOSE",
+          },
+        },
+        // Behaviour-preserving compression. It starts by agreeing what is worth compressing.
+        PROPOSE: { ...review, entry: "enterRefine", on: { CONTINUE: "REFINE" } },
+        REFINE: { tags: "working", on: { CHECKPOINT: "CHECKPOINT" } },
+      },
+    },
+  },
 });
 
 export type PairSnapshot = SnapshotFrom<typeof pairMachine>;
@@ -135,13 +150,13 @@ export type PairSnapshot = SnapshotFrom<typeof pairMachine>;
  * Hides the xstate Actor implementation details and provides a stable API.
  */
 export interface PairActor {
-	getSnapshot(): PairSnapshot;
-	send(event: PairEvent): void;
-	subscribe(observer: (snapshot: PairSnapshot) => void): Subscription;
-	getPersistedSnapshot(): PairSnapshot;
-	start(): void;
-	stop(): void;
-	reset(snapshot?: PairSnapshot): void;
+  getSnapshot(): PairSnapshot;
+  send(event: PairEvent): void;
+  subscribe(observer: (snapshot: PairSnapshot) => void): Subscription;
+  getPersistedSnapshot(): PairSnapshot;
+  start(): void;
+  stop(): void;
+  reset(snapshot?: PairSnapshot): void;
 }
 
 /**
@@ -150,135 +165,131 @@ export interface PairActor {
  * Subscriptions survive resets by tracking observers and re-subscribing to the new actor.
  */
 export class PairActorImpl implements PairActor {
-	private actor: Actor<typeof pairMachine>;
-	private subscriptions = new Map<(snapshot: PairSnapshot) => void, Subscription>();
+  private actor: Actor<typeof pairMachine>;
+  private subscriptions = new Map<(snapshot: PairSnapshot) => void, Subscription>();
 
-	constructor(snapshot?: PairSnapshot) {
-		this.actor = snapshot
-			? createActor(pairMachine, { snapshot })
-			: createActor(pairMachine);
-	}
+  constructor(snapshot?: PairSnapshot) {
+    this.actor = snapshot ? createActor(pairMachine, { snapshot }) : createActor(pairMachine);
+  }
 
-	getSnapshot(): PairSnapshot {
-		return this.actor.getSnapshot();
-	}
+  getSnapshot(): PairSnapshot {
+    return this.actor.getSnapshot();
+  }
 
-	send(event: PairEvent): void {
-		this.actor.send(event);
-	}
+  send(event: PairEvent): void {
+    this.actor.send(event);
+  }
 
-	subscribe(observer: (snapshot: PairSnapshot) => void): Subscription {
-		const sub = this.actor.subscribe(observer);
-		this.subscriptions.set(observer, sub);
+  subscribe(observer: (snapshot: PairSnapshot) => void): Subscription {
+    const sub = this.actor.subscribe(observer);
+    this.subscriptions.set(observer, sub);
 
-		return {
-			unsubscribe: () => {
-				const currentSub = this.subscriptions.get(observer);
-				if (currentSub) {
-					currentSub.unsubscribe();
-					this.subscriptions.delete(observer);
-				}
-			},
-		};
-	}
+    return {
+      unsubscribe: () => {
+        const currentSub = this.subscriptions.get(observer);
+        if (currentSub) {
+          currentSub.unsubscribe();
+          this.subscriptions.delete(observer);
+        }
+      },
+    };
+  }
 
-	getPersistedSnapshot(): PairSnapshot {
-		return this.actor.getPersistedSnapshot() as PairSnapshot;
-	}
+  getPersistedSnapshot(): PairSnapshot {
+    return this.actor.getPersistedSnapshot() as PairSnapshot;
+  }
 
-	start(): void {
-		this.actor.start();
-	}
+  start(): void {
+    this.actor.start();
+  }
 
-	stop(): void {
-		this.actor.stop();
-	}
+  stop(): void {
+    this.actor.stop();
+  }
 
-	reset(snapshot?: PairSnapshot): void {
-		this.stop();
-		this.actor = snapshot
-			? createActor(pairMachine, { snapshot })
-			: createActor(pairMachine);
+  reset(snapshot?: PairSnapshot): void {
+    this.stop();
+    this.actor = snapshot ? createActor(pairMachine, { snapshot }) : createActor(pairMachine);
 
-		// Re-subscribe all observers to the new actor
-		for (const [observer] of this.subscriptions) {
-			const newSub = this.actor.subscribe(observer);
-			this.subscriptions.set(observer, newSub);
-		}
-	}
+    // Re-subscribe all observers to the new actor
+    for (const [observer] of this.subscriptions) {
+      const newSub = this.actor.subscribe(observer);
+      this.subscriptions.set(observer, newSub);
+    }
+  }
 }
 
 export function phaseOf(snapshot: PairSnapshot): Phase {
-	if (snapshot.value === "IDLE") return "IDLE";
-	const inner = (snapshot.value as { task: Phase | Partial<Record<Phase, string>> }).task;
-	return typeof inner === "string" ? inner : (Object.keys(inner)[0] as Phase);
+  if (snapshot.value === "IDLE") return "IDLE";
+  const inner = (snapshot.value as { task: Phase | Partial<Record<Phase, string>> }).task;
+  return typeof inner === "string" ? inner : (Object.keys(inner)[0] as Phase);
 }
 
 export function isReadOnly(snapshot: PairSnapshot): boolean {
-	return snapshot.hasTag("readOnly");
+  return snapshot.hasTag("readOnly");
 }
 
 /** CHECKPOINT or PROPOSE: the agent has handed something over for the user. */
 export function isReview(snapshot: PairSnapshot): boolean {
-	return snapshot.hasTag("review");
+  return snapshot.hasTag("review");
 }
 
 /** Making changes the agent may hand over for review: BUILD or REFINE. */
 export function isWorking(snapshot: PairSnapshot): boolean {
-	return snapshot.hasTag("working");
+  return snapshot.hasTag("working");
 }
 
 /** Talking things through: DESIGN, or a checkpoint or refinement proposal after the one-time selector. */
 export function isDiscussing(snapshot: PairSnapshot): boolean {
-	return snapshot.hasTag("discussing");
+  return snapshot.hasTag("discussing");
 }
 
 // When a mutating call hits a read-only phase, the block reason names the phase the agent
 // would land in via resume_work. DESIGN always targets BUILD; CHECKPOINT targets BUILD or
 // REFINE depending on whether we're mid-refinement; PROPOSE targets REFINE.
 export function readOnlyTargetPhase(snapshot: PairSnapshot): string | undefined {
-	switch (phaseOf(snapshot)) {
-		case "DESIGN":
-			return "BUILD";
-		case "CHECKPOINT":
-			return snapshot.context.refining ? "REFINE" : "BUILD";
-		case "PROPOSE":
-			return "REFINE";
-		default:
-			return undefined;
-	}
+  switch (phaseOf(snapshot)) {
+    case "DESIGN":
+      return "BUILD";
+    case "CHECKPOINT":
+      return snapshot.context.refining ? "REFINE" : "BUILD";
+    case "PROPOSE":
+      return "REFINE";
+    default:
+      return undefined;
+  }
 }
 
 // Stopping is restated here rather than left to PROTOCOL: tool gating cannot stop the agent talking,
 // and the latest instruction is the one it follows.
 export function banner(snapshot: PairSnapshot): string {
-	const { task, effort } = snapshot.context;
-	const taskLine = task ? `\nTask: ${task}` : "";
-	switch (phaseOf(snapshot)) {
-		case "DESIGN":
-			return `[PHASE: DESIGN]${taskLine}
+  const { task, effort } = snapshot.context;
+  const taskLine = task ? `\nTask: ${task}` : "";
+  switch (phaseOf(snapshot)) {
+    case "DESIGN":
+      return `[PHASE: DESIGN]${taskLine}
 ${effort === "complex" ? "Explore the affected code thoroughly before any plan. " : ""}No execution plan until the user asks for one.`;
-		case "BUILD":
-			return `[PHASE: BUILD]${taskLine}
+    case "BUILD":
+      return `[PHASE: BUILD]${taskLine}
 Implement the plan.`;
-		case "CHECKPOINT":
-			if (isDiscussing(snapshot)) return `[PHASE: CHECKPOINT — DISCUSSION]${taskLine}`;
-			return `[PHASE: CHECKPOINT]${taskLine}
+    case "CHECKPOINT":
+      if (isDiscussing(snapshot)) return `[PHASE: CHECKPOINT — DISCUSSION]${taskLine}`;
+      return `[PHASE: CHECKPOINT]${taskLine}
 Stop. Summarize what changed and where, what is verified and how, what is still open. Then wait.`;
-		case "PROPOSE":
-			if (isDiscussing(snapshot)) return `[PHASE: PROPOSE — DISCUSSION]${taskLine}`;
-			return `[PHASE: PROPOSE]${taskLine}
+    case "PROPOSE":
+      if (isDiscussing(snapshot)) return `[PHASE: PROPOSE — DISCUSSION]${taskLine}`;
+      return `[PHASE: PROPOSE]${taskLine}
 Propose, then stop and wait: nothing changes until you and the user agree.`;
-		case "REFINE":
-			return `[PHASE: REFINE]${taskLine}
+    case "REFINE":
+      return `[PHASE: REFINE]${taskLine}
 Carry out the agreed refinement.`;
-		case "IDLE":
-			return "[PHASE: IDLE]";
-	}
+    case "IDLE":
+      return "[PHASE: IDLE]";
+  }
 }
 
 export function bannerMessage(snapshot: PairSnapshot) {
-	return { customType: BANNER, content: banner(snapshot), display: false };
+  return { customType: BANNER, content: banner(snapshot), display: false };
 }
 
 /**
@@ -286,11 +297,11 @@ export function bannerMessage(snapshot: PairSnapshot) {
  * machine shape would otherwise pass createActor and crash asynchronously on start.
  */
 export function restorable(saved: PairSnapshot | undefined): PairSnapshot | undefined {
-	if (!saved) return undefined;
-	try {
-		pairMachine.resolveState({ value: saved.value, context: saved.context });
-		return saved;
-	} catch {
-		return undefined;
-	}
+  if (!saved) return undefined;
+  try {
+    pairMachine.resolveState({ value: saved.value, context: saved.context });
+    return saved;
+  } catch {
+    return undefined;
+  }
 }
