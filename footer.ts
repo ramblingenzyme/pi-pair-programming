@@ -115,7 +115,7 @@ export function buildFooter(
 
 				// Build left side: PHASE • path (branch) • todos
 				// Show effort classification in DESIGN mode
-				let phaseDisplay = phase;
+				let phaseDisplay: string = phase;
 				if (phase === "DESIGN" && snapshot.context.effort) {
 					phaseDisplay = `${phase} (${snapshot.context.effort})`;
 				}

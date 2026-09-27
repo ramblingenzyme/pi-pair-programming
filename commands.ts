@@ -207,33 +207,26 @@ export function registerCommands(
 	});
 
 	pi.registerCommand("todo", {
-		description: "Add a todo: things that come up during work but don't need to be done now",
+		description: "Add a todo or view the list: /todo <text> to add, /todo to view",
 		handler: async (args, ctx) => {
 			const text = args.trim();
 			if (!text) {
-				ctx.ui.notify("Usage: /todo <text>", "info");
+				if (ctx.mode !== "tui") {
+					ctx.ui.notify("/todo requires interactive mode to view the list", "error");
+					return;
+				}
+				const selected = await ctx.ui.custom<string | undefined>((_tui, theme, _kb, done) => {
+					return new TodoListComponent(todos, theme, (result) => done(result));
+				});
+				if (selected === undefined) return;
+				const prompt = await ctx.ui.editor("Send as prompt", selected);
+				if (prompt) {
+					pi.sendUserMessage(prompt);
+				}
 				return;
 			}
 			const added = todos.add(text);
 			ctx.ui.notify(`Added #${added.id}: ${added.text}`, "info");
-		},
-	});
-
-	pi.registerCommand("todos", {
-		description: "Show all todos; select one to edit and send as a prompt",
-		handler: async (_args, ctx) => {
-			if (ctx.mode !== "tui") {
-				ctx.ui.notify("/todos requires interactive mode", "error");
-				return;
-			}
-			const selected = await ctx.ui.custom<string | undefined>((_tui, theme, _kb, done) => {
-				return new TodoListComponent(todos, theme, (result) => done(result));
-			});
-			if (selected === undefined) return;
-			const text = await ctx.ui.input("Send as prompt", selected);
-			if (text) {
-				pi.sendUserMessage(text);
-			}
 		},
 	});
 

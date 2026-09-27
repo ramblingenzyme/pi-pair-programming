@@ -1,5 +1,6 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import {
+	compact,
 	getAgentDir,
 	type ExtensionAPI,
 	type ExtensionContext,
@@ -13,6 +14,7 @@ import { type Decider, RuleDecider } from "./decider.ts";
 import { buildFooter } from "./footer.ts";
 import { LlmDecider } from "./llm-decider.ts";
 import { TodoStore } from "./todos.ts";
+import { buildCompactionInstructions } from "./compaction.ts";
 import {
 	type PairActor,
 	type PairEvent,
@@ -324,9 +326,24 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 		return checkpointMenu(ctx);
 	});
 
-	// Compaction can drop the per-prompt banner; the phase itself is unaffected.
-	// ponytail: compaction runs pi's default summary. Deciding what is safe to forget means returning
-	// a custom CompactionResult from session_before_compact via a Decider call — the Jev-era slice.
+	// Pi's default compaction summary captures goals and progress but not the pair workflow.
+	// We steer it with phase-aware custom instructions, then re-inject the banner after.
+	pi.on("session_before_compact", async (event) => {
+		const model = session?.model;
+		if (!model || !session) throw new Error("no model for compaction");
+
+		const auth = await session.modelRegistry.getApiKeyAndHeaders(model);
+		if (!auth.ok) throw new Error(auth.error);
+
+		const headers = auth.headers
+			? Object.fromEntries(Object.entries(auth.headers).filter(([, v]) => v !== null)) as Record<string, string>
+			: undefined;
+		const instructions = buildCompactionInstructions(actor.getSnapshot(), event.customInstructions);
+		return {
+			compaction: await compact(event.preparation, model, auth.apiKey, headers, instructions, event.signal),
+		};
+	});
+
 	pi.on("session_compact", async () => {
 		if (context().task) pi.sendMessage(msg());
 	});
