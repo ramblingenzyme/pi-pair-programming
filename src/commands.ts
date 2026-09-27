@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-c
 import { matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import type { Decider } from "./decider.ts";
-import { setPersistedJudgeModel } from "./index.ts";
+import { setPersistedJudgeModel } from "./judge-config.ts";
 import {
 	type PairActor,
 	banner,
