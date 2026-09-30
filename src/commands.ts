@@ -11,6 +11,7 @@ import {
   isWorking,
   phaseOf,
 } from "./machine.ts";
+import type { DecisionStore } from "./decisions.ts";
 import type { TodoStore } from "./todos.ts";
 
 type TodoAction = { action: "select"; text: string } | { action: "add" } | { action: "cancel" };
@@ -212,6 +213,7 @@ export function registerCommands(
   actor: PairActor,
   decider: Decider,
   todos: TodoStore,
+  decisions: DecisionStore,
   session: () => ExtensionContext | undefined,
   getJudgeModelOverride: () => string | undefined,
   setJudgeModelOverride: (v: string | undefined) => void,
@@ -343,6 +345,28 @@ export function registerCommands(
     },
   });
 
+  pi.registerCommand("decisions", {
+    description: "View or clear recorded decisions: /decisions to view, /decisions clear to clear",
+    handler: async (args, ctx) => {
+      const arg = args.trim();
+      if (arg === "clear") {
+        decisions.clear();
+        ctx.ui.notify("Decisions cleared", "info");
+        return;
+      }
+      const all = decisions.getState().decisions;
+      if (all.length === 0) {
+        ctx.ui.notify("No decisions recorded", "info");
+        return;
+      }
+      const lines = all.map((d, i) => {
+        const alts = d.alternatives.length > 0 ? ` (alternatives: ${d.alternatives.join(", ")})` : "";
+        return `${i + 1}. ${d.decision}${alts}`;
+      });
+      ctx.ui.notify(lines.join("\n"), "info");
+    },
+  });
+
   async function showTodoList(ctx: ExtensionContext): Promise<void> {
     while (true) {
       const result = await ctx.ui.custom<TodoAction>((_tui, theme, _kb, done) => {
@@ -459,6 +483,7 @@ export function registerTools(
   pi: ExtensionAPI,
   actor: PairActor,
   todos: TodoStore,
+  decisions: DecisionStore,
   lastUserText: () => string,
 ): void {
   const context = () => actor.getSnapshot().context;
@@ -512,6 +537,32 @@ export function registerTools(
       }
 
       throw new Error("Cannot yield from this state.");
+    },
+  });
+
+  pi.registerTool({
+    name: "record_decision",
+    label: "Record decision",
+    description:
+      "Record autonomous decisions with real impact on the outcome — decisions you made without user discussion or approval that affect behavior, change the approach, or impact what comes next. Don't record trivial decisions or ones already discussed with the user.",
+    parameters: Type.Object({
+      decision: Type.String({ description: "The decision made" }),
+      alternatives: Type.Array(Type.String(), {
+        description: "Alternatives considered",
+      }),
+    }),
+    async execute(_toolCallId, params) {
+      const added = decisions.add(params.decision, params.alternatives);
+      const count = decisions.count();
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Recorded decision #${count}: ${added.decision}`,
+          },
+        ],
+        details: undefined,
+      };
     },
   });
 }

@@ -7,6 +7,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth, type TUI } from "@earendil-works/pi-tui";
 import { type PairActor, type PairSnapshot, isReview, phaseOf } from "./machine.ts";
+import type { DecisionStore } from "./decisions.ts";
 import type { TodoStore } from "./todos.ts";
 
 /**
@@ -92,9 +93,14 @@ function contextColor(percent: number | null): "dim" | "warning" | "error" {
 
 /**
  * Build the custom footer factory for ctx.ui.setFooter().
- * Takes a PairActor to access the current state and a TodoStore for todo count.
+ * Takes a PairActor to access the current state, a TodoStore for todo count, and a DecisionStore for decision count.
  */
-export function buildFooter(actor: PairActor, todos: TodoStore, ctx: ExtensionContext) {
+export function buildFooter(
+  actor: PairActor,
+  todos: TodoStore,
+  decisions: DecisionStore,
+  ctx: ExtensionContext,
+) {
   let requestRender: (() => void) | undefined;
 
   const factory = (tui: TUI, _theme: Theme, footerData: ReadonlyFooterDataProvider) => {
@@ -126,6 +132,12 @@ export function buildFooter(actor: PairActor, todos: TodoStore, ctx: ExtensionCo
         const pendingTodos = todos.pendingCount();
         if (pendingTodos > 0) {
           left += ` ${theme.fg("dim", "•")} ${theme.fg("accent", `${pendingTodos} todo${pendingTodos === 1 ? "" : "s"}`)}`;
+        }
+
+        // Add decision count if there are recorded decisions
+        const decisionCount = decisions.count();
+        if (decisionCount > 0) {
+          left += ` ${theme.fg("dim", "•")} ${theme.fg("accent", `${decisionCount} decision${decisionCount === 1 ? "" : "s"}`)}`;
         }
 
         const leftWidth = visibleWidth(left);

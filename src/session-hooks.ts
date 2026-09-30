@@ -7,6 +7,7 @@ import {
   bannerMessage,
   restorable,
 } from "./machine.ts";
+import type { DecisionStore } from "./decisions.ts";
 import type { TodoStore } from "./todos.ts";
 
 const STATE_ENTRY = "pair-state";
@@ -21,6 +22,7 @@ export function registerSessionHooks(
   pi: ExtensionAPI,
   actor: PairActor,
   todos: TodoStore,
+  decisions: DecisionStore,
   state: HookState,
 ): void {
   function applyPhase(_snapshot: PairSnapshot): void {
@@ -30,6 +32,7 @@ export function registerSessionHooks(
   pi.on("session_start", async (_event, ctx) => {
     state.session = ctx;
     todos.load(ctx);
+    decisions.load(ctx);
     const saved = ctx.sessionManager
       .getBranch()
       .filter((e) => e.type === "custom" && e.customType === STATE_ENTRY)
@@ -45,7 +48,7 @@ export function registerSessionHooks(
     });
     actor.start();
 
-    const { factory, requestRender } = buildFooter(actor, todos, ctx);
+    const { factory, requestRender } = buildFooter(actor, todos, decisions, ctx);
     state.footerRequestRender = requestRender;
     ctx.ui.setFooter(factory);
   });

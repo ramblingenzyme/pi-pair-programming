@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerCommands, registerTools } from "./src/commands.ts";
 import { PairActorImpl } from "./src/machine.ts";
 import { TodoStore } from "./src/todos.ts";
+import { DecisionStore } from "./src/decisions.ts";
 import {
   createDecider,
   getJudgeModelOverride,
@@ -14,9 +15,11 @@ import { registerTurnHooks } from "./src/turn-hooks.ts";
 export default function pairProgrammer(pi: ExtensionAPI) {
   const actor = new PairActorImpl();
   const todos = new TodoStore();
+  const decisions = new DecisionStore();
   const state: HookState = { lastUserText: "" };
 
   todos.attach(pi);
+  decisions.attach(pi);
   setJudgeModelOverride(getPersistedJudgeModel());
 
   pi.registerFlag("pair-rules", {
@@ -42,16 +45,17 @@ export default function pairProgrammer(pi: ExtensionAPI) {
 
   const decider = createDecider(pi, resolveJudgeModel, () => state.session);
 
-  registerSessionHooks(pi, actor, todos, state);
+  registerSessionHooks(pi, actor, todos, decisions, state);
   registerTurnHooks(pi, actor, decider, state);
   registerCommands(
     pi,
     actor,
     decider,
     todos,
+    decisions,
     () => state.session,
     getJudgeModelOverride,
     setJudgeModelOverride,
   );
-  registerTools(pi, actor, todos, () => state.lastUserText);
+  registerTools(pi, actor, todos, decisions, () => state.lastUserText);
 }

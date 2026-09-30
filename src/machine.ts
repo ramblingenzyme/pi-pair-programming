@@ -33,6 +33,10 @@ Use yield to hand over based on your current state:
 - In discussion phases (DESIGN, CHECKPOINT-discuss, PROPOSE-discuss): propose moving on. The user confirms.
 - In working phases (BUILD, REFINE): request a checkpoint for review.
 
+In BUILD and REFINE, record decisions you made without user discussion or approval that have real impact on the outcome. This includes architectural choices, implementation approaches, interface designs, and trade-offs. Don't record trivial decisions or ones already discussed with the user. Use record_decision. Summarize them at the next checkpoint.
+
+In VIBE mode, use record_decision for the same kinds of decisions. Mention them at the next stopping point.
+
 Compression here means semantic compression: removing duplication that already exists in the working code, so each
 piece says only what is unique to it. It is not making code shorter, and not adding abstractions for cases that do
 not exist yet. Measure it by the total cost to a reader and maintainer.`;
