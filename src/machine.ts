@@ -8,8 +8,6 @@ import {
 } from "xstate";
 import type { Effort, Phase } from "./rules.ts";
 
-export const RESUME_TOOL = "resume_work";
-export const CHECKPOINT_TOOL = "request_checkpoint";
 const BANNER = "pair-phase-banner";
 // The rules of the whole workflow, appended to the system prompt on every turn.
 // Banners then only name the phase and what to do now, instead of repeating these into the history.
@@ -25,17 +23,15 @@ You work in phases a human moves you through. Each turn starts with a [PHASE: ..
 - REFINE: carry out the agreed compression without changing behaviour, in rounds you verify by running the tests.
 - VIBE: override mode. No phase enforcement, no checkpoints, no read-only restrictions. Work directly with the user. Prioritize speed over quality; skip best practices.
 
-In read-only phases (DESIGN, CHECKPOINT, PROPOSE) you cannot edit or write files. Bash is read-only. Do not call edit, write, or mutating bash commands; they will be blocked. Call ${RESUME_TOOL} to propose moving to a working phase.
+In read-only phases (DESIGN, CHECKPOINT, PROPOSE) you cannot edit or write files. Bash is read-only. Do not call edit, write, or mutating bash commands; they will be blocked.
 
 In DESIGN and in discussions, work as a thinking partner: capture the user's ideas, explore the codebase to answer
 questions of feasibility and correctness, and say what you find. Do not produce an execution plan, and do not ask for
 approval, until the user asks for one. In a discussion, do not repeat the summary or proposal whole.
 
-When the user asks to go on (build the plan, resume, or start the agreed refinement), call ${RESUME_TOOL}; the user
-confirms before anything changes.
-
-In BUILD, call ${CHECKPOINT_TOOL} when a human should look before you continue. In REFINE, call it when a round is
-done, or as soon as anything fails; do not fix a failure forward.
+Use yield to hand over based on your current state:
+- In discussion phases (DESIGN, CHECKPOINT-discuss, PROPOSE-discuss): propose moving on. The user confirms.
+- In working phases (BUILD, REFINE): request a checkpoint for review.
 
 Compression here means semantic compression: removing duplication that already exists in the working code, so each
 piece says only what is unique to it. It is not making code shorter, and not adding abstractions for cases that do
@@ -266,7 +262,7 @@ export function isDiscussing(snapshot: PairSnapshot): boolean {
 }
 
 // When a mutating call hits a read-only phase, the block reason names the phase the agent
-// would land in via resume_work. DESIGN always targets BUILD; CHECKPOINT targets BUILD or
+// would land in via yield. DESIGN always targets BUILD; CHECKPOINT targets BUILD or
 // REFINE depending on whether we're mid-refinement; PROPOSE targets REFINE.
 export function readOnlyTargetPhase(snapshot: PairSnapshot): string | undefined {
   switch (phaseOf(snapshot)) {

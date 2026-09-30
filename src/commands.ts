@@ -10,8 +10,6 @@ import {
   isDiscussing,
   isWorking,
   phaseOf,
-  CHECKPOINT_TOOL,
-  RESUME_TOOL,
 } from "./machine.ts";
 import type { TodoStore } from "./todos.ts";
 
@@ -466,54 +464,54 @@ export function registerTools(
   const context = () => actor.getSnapshot().context;
   const bannerText = () => banner(actor.getSnapshot());
 
-  // The agent can only propose leaving a discussion; the user's confirm is the approval. A tool call is
-  // the agent's claim that the user asked, which is self-report and can come from misreading or injection.
+  // Unified yield tool: in discussion phases, propose moving on (user confirms); in working phases, request checkpoint.
   pi.registerTool({
-    name: RESUME_TOOL,
-    label: "Resume work",
+    name: "yield",
+    label: "Yield to user",
     description:
-      "Propose moving on: build the plan from DESIGN, resume building or refining after a checkpoint, or start the agreed refinement. Call only when the user has asked to go on. The user must confirm.",
+      "Yield to the user based on your current state. In discussion phases, propose moving on (user confirms). In working phases, request a checkpoint for review.",
     parameters: Type.Object({
-      reason: Type.String({ description: "What the user said that asks to go on" }),
+      reason: Type.String({ description: "Why you're yielding" }),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      if (!isDiscussing(actor.getSnapshot())) throw new Error("Not in a discussion.");
-      const designing = phaseOf(actor.getSnapshot()) === "DESIGN";
-      if (!ctx.hasUI) throw new Error("No one can confirm here; stay where you are.");
-      const proposing = phaseOf(actor.getSnapshot()) === "PROPOSE";
-      const confirmed = await ctx.ui.confirm(
-        designing
-          ? "Build this plan?"
-          : proposing
-            ? "Start the agreed refinement?"
-            : context().refining
-              ? "Resume refining?"
-              : "Resume building?",
-        `You said: "${lastUserText()}"\n\nAgent's reading: ${params.reason}`,
-      );
-      if (!confirmed) {
-        const text =
-          "The user did not confirm. Stay where you are; do not propose moving on again unless they ask.";
-        return { content: [{ type: "text", text }], details: undefined };
-      }
-      actor.send({ type: "CONTINUE" });
-      return { content: [{ type: "text", text: bannerText() }], details: undefined };
-    },
-  });
+      const snapshot = actor.getSnapshot();
+      const phase = phaseOf(snapshot);
 
-  // Asking for review only adds oversight, so unlike resume_work the agent's call is trusted as-is.
-  pi.registerTool({
-    name: CHECKPOINT_TOOL,
-    label: "Request checkpoint",
-    description:
-      "Stop working and hand over for review. Call when a human should look before you continue: a refinement round is finished and verified, anything fails while refining, or building has reached a point worth reviewing.",
-    parameters: Type.Object({
-      reason: Type.String({ description: "Why: what is ready for review, or what failed" }),
-    }),
-    async execute() {
-      if (!isWorking(actor.getSnapshot())) throw new Error("Not building or refining.");
-      actor.send({ type: "CHECKPOINT" });
-      return { content: [{ type: "text", text: bannerText() }], details: undefined };
+      if (phase === "VIBE" || phase === "IDLE") {
+        throw new Error("No phase to yield from.");
+      }
+
+      if (isDiscussing(snapshot)) {
+        // Discussion phase: prompt user, send CONTINUE
+        const designing = phase === "DESIGN";
+        if (!ctx.hasUI) throw new Error("No one can confirm here; stay where you are.");
+        const proposing = phase === "PROPOSE";
+        const confirmed = await ctx.ui.confirm(
+          designing
+            ? "Build this plan?"
+            : proposing
+              ? "Start the agreed refinement?"
+              : context().refining
+                ? "Resume refining?"
+                : "Resume building?",
+          `You said: "${lastUserText()}"\n\nAgent's reading: ${params.reason}`,
+        );
+        if (!confirmed) {
+          const text =
+            "The user did not confirm. Stay where you are; do not propose moving on again unless they ask.";
+          return { content: [{ type: "text", text }], details: undefined };
+        }
+        actor.send({ type: "CONTINUE" });
+        return { content: [{ type: "text", text: bannerText() }], details: undefined };
+      }
+
+      if (isWorking(snapshot)) {
+        // Working phase: send CHECKPOINT
+        actor.send({ type: "CHECKPOINT" });
+        return { content: [{ type: "text", text: bannerText() }], details: undefined };
+      }
+
+      throw new Error("Cannot yield from this state.");
     },
   });
 }

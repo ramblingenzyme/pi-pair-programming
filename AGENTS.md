@@ -25,7 +25,7 @@ Read-only is a state tag (`readOnly`), not a phase list. Edit/write tools are re
 
 - **`machine.ts`**: xstate phase machine, snapshot persistence, phase helpers
 - **`commands.ts`**: Slash commands (`/design`, `/continue`, `/refine`, `/done`, `/phase`, `/judge-model`)
-- **`index.ts`**: Hook wiring, tool gating, agent tools (`resume_work`, `request_checkpoint`), banners
+- **`index.ts`**: Hook wiring, tool gating, agent tools (`yield`), banners
 - **`rules.ts`**: Hard deterministic rules (destructive commands, read-only enforcement, thrash limit)
 - **`decider.ts`**: Decider interface and keyword-rule implementation
 - **`llm-decider.ts`**: LLM judge for effort classification and checkpoint decisions
@@ -34,7 +34,7 @@ Read-only is a state tag (`readOnly`), not a phase list. Edit/write tools are re
 ### Extension points
 
 - **Hooks**: `session_start`, `input`, `before_agent_start`, `tool_call`, `turn_end`, `agent_before_settle`, `session_compact`
-- **Tools**: `resume_work` (propose moving on), `request_checkpoint` (hand over for review)
+- **Tools**: `yield` (propose moving on in discussion phases, request checkpoint in working phases)
 - **Commands**: `/design`, `/continue`, `/refine`, `/done`, `/phase`, `/judge-model`
 
 ## Development
@@ -66,3 +66,4 @@ See `docs/adr/` for architectural decisions:
 - Plans are approved only by a person
 - Agent checkpoint requests are trusted in BUILD
 - Refinement steps sit beside DESIGN and BUILD
+- One yield tool across all phases

@@ -5,11 +5,7 @@ import {
   type PairActor,
   type PairSnapshot,
   bannerMessage,
-  isDiscussing,
-  isWorking,
   restorable,
-  CHECKPOINT_TOOL,
-  RESUME_TOOL,
 } from "./machine.ts";
 import type { TodoStore } from "./todos.ts";
 
@@ -27,13 +23,7 @@ export function registerSessionHooks(
   todos: TodoStore,
   state: HookState,
 ): void {
-  function applyPhase(snapshot: PairSnapshot): void {
-    const managed = new Set([RESUME_TOOL, CHECKPOINT_TOOL]);
-    pi.setActiveTools([
-      ...pi.getActiveTools().filter((t) => !managed.has(t)),
-      ...(isDiscussing(snapshot) ? [RESUME_TOOL] : []),
-      ...(isWorking(snapshot) ? [CHECKPOINT_TOOL] : []),
-    ]);
+  function applyPhase(_snapshot: PairSnapshot): void {
     state.footerRequestRender?.();
   }
 
