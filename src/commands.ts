@@ -11,10 +11,13 @@ import {
   isWorking,
   phaseOf,
 } from "./machine.ts";
-import type { DecisionStore } from "./decisions.ts";
+import type { Decision, DecisionStore } from "./decisions.ts";
 import type { TodoStore } from "./todos.ts";
 
 type TodoAction = { action: "select"; text: string } | { action: "add" } | { action: "cancel" };
+type DecisionAction =
+  | { action: "select"; decision: Decision; index: number }
+  | { action: "cancel" };
 
 type ListState =
   | { mode: "focused"; index: number }
@@ -208,6 +211,199 @@ class TodoListComponent {
   }
 }
 
+class DecisionListComponent {
+  private decisions: DecisionStore;
+  private theme: Theme;
+  private onDone: (result: DecisionAction) => void;
+  private listState: ListState;
+  private cachedWidth?: number;
+  private cachedLines?: string[];
+
+  constructor(decisions: DecisionStore, theme: Theme, onDone: (result: DecisionAction) => void) {
+    this.decisions = decisions;
+    this.theme = theme;
+    this.onDone = onDone;
+    const state = decisions.getState();
+    this.listState = state.decisions.length > 0 ? { mode: "focused", index: 0 } : { mode: "empty" };
+  }
+
+  handleInput(data: string): void {
+    const key = this.normalizeKey(data);
+    const state = this.decisions.getState();
+
+    switch (this.listState.mode) {
+      case "focused": {
+        switch (key) {
+          case "escape":
+          case "ctrl+c":
+            this.onDone({ action: "cancel" });
+            break;
+          case "return": {
+            const selected = state.decisions[this.listState.index];
+            if (selected) {
+              this.onDone({
+                action: "select",
+                decision: selected,
+                index: this.listState.index,
+              });
+            }
+            break;
+          }
+          case "up":
+          case "k":
+            if (this.listState.index > 0) {
+              this.listState = { mode: "focused", index: this.listState.index - 1 };
+              this.cachedLines = undefined;
+            }
+            break;
+          case "down":
+          case "j":
+            if (this.listState.index < state.decisions.length - 1) {
+              this.listState = { mode: "focused", index: this.listState.index + 1 };
+              this.cachedLines = undefined;
+            }
+            break;
+          case " ":
+            this.decisions.toggleAddressed(this.listState.index);
+            this.cachedLines = undefined;
+            break;
+          case "d":
+            this.listState = { mode: "pendingDelete", index: this.listState.index };
+            this.cachedLines = undefined;
+            break;
+        }
+        break;
+      }
+      case "empty": {
+        switch (key) {
+          case "escape":
+          case "ctrl+c":
+            this.onDone({ action: "cancel" });
+            return;
+        }
+        break;
+      }
+      case "pendingDelete": {
+        switch (key) {
+          case "escape":
+          case "ctrl+c":
+            this.listState = { mode: "focused", index: this.listState.index };
+            this.cachedLines = undefined;
+            break;
+          case "d":
+            this.decisions.remove(this.listState.index);
+            const newState = this.decisions.getState();
+            if (newState.decisions.length === 0) {
+              this.listState = { mode: "empty" };
+            } else {
+              const newIndex = Math.min(this.listState.index, newState.decisions.length - 1);
+              this.listState = { mode: "focused", index: newIndex };
+            }
+            this.cachedLines = undefined;
+            break;
+        }
+        break;
+      }
+    }
+  }
+
+  private normalizeKey(data: string): string {
+    if (matchesKey(data, "escape")) return "escape";
+    if (matchesKey(data, "ctrl+c")) return "ctrl+c";
+    if (matchesKey(data, "return")) return "return";
+    if (matchesKey(data, "up")) return "up";
+    if (matchesKey(data, "down")) return "down";
+    return data;
+  }
+
+  render(width: number): string[] {
+    if (this.cachedLines && this.cachedWidth === width) {
+      return this.cachedLines;
+    }
+
+    const lines: string[] = [];
+    const th = this.theme;
+    const state = this.decisions.getState();
+
+    lines.push("");
+    const title = th.fg("accent", " Decisions ");
+    const headerLine =
+      th.fg("borderMuted", "─".repeat(3)) +
+      title +
+      th.fg("borderMuted", "─".repeat(Math.max(0, width - 13)));
+    lines.push(truncateToWidth(headerLine, width));
+    lines.push("");
+
+    if (state.decisions.length === 0) {
+      lines.push(
+        truncateToWidth(`  ${th.fg("dim", "No decisions recorded yet.")}`, width),
+      );
+    } else {
+      const unaddressed = state.decisions.filter((d) => !d.addressed).length;
+      const total = state.decisions.length;
+      lines.push(truncateToWidth(`  ${th.fg("muted", `${unaddressed}/${total} addressed`)}`, width));
+      lines.push("");
+
+      for (const [i, decision] of state.decisions.entries()) {
+        const selected =
+          (this.listState.mode === "focused" || this.listState.mode === "pendingDelete") &&
+          i === this.listState.index;
+        const prefix = selected ? th.fg("accent", "▸ ") : "  ";
+        const check = decision.addressed ? th.fg("success", "✓") : th.fg("dim", "○");
+        const num = th.fg("accent", `#${i + 1}`);
+        const text = decision.addressed
+          ? th.fg("dim", th.strikethrough(decision.decision))
+          : selected
+            ? th.fg("text", decision.decision)
+            : th.fg("muted", decision.decision);
+        lines.push(truncateToWidth(`${prefix}${check} ${num} ${text}`, width));
+
+        // Show alternatives only when selected and not addressed
+        if (selected && !decision.addressed && decision.alternatives.length > 0) {
+          const altsText = decision.alternatives.join(", ");
+          lines.push(
+            truncateToWidth(`       ${th.fg("dim", `alternatives: ${altsText}`)}`, width),
+          );
+        }
+      }
+    }
+
+    lines.push("");
+    if (this.listState.mode === "pendingDelete") {
+      lines.push(
+        truncateToWidth(
+          `  ${th.fg("warning", "Press d again to confirm deletion · Esc cancel delete")}`,
+          width,
+        ),
+      );
+    } else if (this.listState.mode === "focused") {
+      lines.push(
+        truncateToWidth(
+          `  ${th.fg("dim", "↑↓ j/k navigate · Enter revisit · Space toggle addressed · d delete · Esc exit")}`,
+          width,
+        ),
+      );
+    } else {
+      lines.push(
+        truncateToWidth(
+          `  ${th.fg("dim", "↑↓ j/k navigate · Enter revisit · Space toggle addressed · d delete · Esc exit")}`,
+          width,
+        ),
+      );
+    }
+    lines.push("");
+
+    this.cachedWidth = width;
+    this.cachedLines = lines;
+    return lines;
+  }
+
+  invalidate(): void {
+    this.cachedWidth = undefined;
+    this.cachedLines = undefined;
+  }
+}
+
 export function registerCommands(
   pi: ExtensionAPI,
   actor: PairActor,
@@ -346,7 +542,7 @@ export function registerCommands(
   });
 
   pi.registerCommand("decisions", {
-    description: "View or clear recorded decisions: /decisions to view, /decisions clear to clear",
+    description: "View recorded decisions: /decisions to view, /decisions clear to clear",
     handler: async (args, ctx) => {
       const arg = args.trim();
       if (arg === "clear") {
@@ -354,18 +550,32 @@ export function registerCommands(
         ctx.ui.notify("Decisions cleared", "info");
         return;
       }
-      const all = decisions.getState().decisions;
-      if (all.length === 0) {
-        ctx.ui.notify("No decisions recorded", "info");
+      if (ctx.mode !== "tui") {
+        ctx.ui.notify("/decisions requires interactive mode to view the list", "error");
         return;
       }
-      const lines = all.map((d, i) => {
-        const alts = d.alternatives.length > 0 ? ` (alternatives: ${d.alternatives.join(", ")})` : "";
-        return `${i + 1}. ${d.decision}${alts}`;
-      });
-      ctx.ui.notify(lines.join("\n"), "info");
+      await showDecisionList(ctx);
     },
   });
+
+  async function showDecisionList(ctx: ExtensionContext): Promise<void> {
+    while (true) {
+      const result = await ctx.ui.custom<DecisionAction>((_tui, theme, _kb, done) => {
+        return new DecisionListComponent(decisions, theme, (action) => done(action));
+      });
+      if (result.action === "cancel") return;
+      if (result.action === "select") {
+        const d = result.decision;
+        const alts =
+          d.alternatives.length > 0
+            ? ` Alternatives considered: ${d.alternatives.join(", ")}.`
+            : "";
+        const prompt = `Walk me through decision #${result.index + 1}: ${d.decision}.${alts} Explain the reasoning so I can decide whether this still holds.`;
+        pi.sendUserMessage(prompt);
+        return;
+      }
+    }
+  }
 
   async function showTodoList(ctx: ExtensionContext): Promise<void> {
     while (true) {

@@ -6,6 +6,7 @@ export interface Decision {
   decision: string;
   alternatives: string[];
   timestamp: number;
+  addressed: boolean;
 }
 
 export interface DecisionState {
@@ -38,10 +39,26 @@ export function addDecision(
     decision,
     alternatives,
     timestamp: Date.now(),
+    addressed: false,
   };
   return {
     state: { decisions: [...state.decisions, newDecision] },
     added: newDecision,
+  };
+}
+
+export function toggleAddressed(
+  state: DecisionState,
+  index: number,
+): { state: DecisionState; toggled: Decision | undefined } {
+  const decision = state.decisions[index];
+  if (!decision) return { state, toggled: undefined };
+  const updated = state.decisions.map((d, i) =>
+    i === index ? { ...d, addressed: !d.addressed } : d,
+  );
+  return {
+    state: { ...state, decisions: updated },
+    toggled: { ...decision, addressed: !decision.addressed },
   };
 }
 
@@ -91,6 +108,13 @@ export class DecisionStore {
     return removed;
   }
 
+  toggleAddressed(index: number): Decision | undefined {
+    const { state, toggled } = toggleAddressed(this.state, index);
+    this.state = state;
+    this.persist();
+    return toggled;
+  }
+
   clear(): void {
     this.state = { decisions: [] };
     this.persist();
@@ -98,6 +122,10 @@ export class DecisionStore {
 
   count(): number {
     return this.state.decisions.length;
+  }
+
+  unaddressedCount(): number {
+    return this.state.decisions.filter((d) => !d.addressed).length;
   }
 
   private persist(): void {

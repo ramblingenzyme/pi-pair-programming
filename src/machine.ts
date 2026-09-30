@@ -296,7 +296,7 @@ Implement the plan.`;
     case "CHECKPOINT":
       if (isDiscussing(snapshot)) return `[PHASE: CHECKPOINT — DISCUSSION]${taskLine}`;
       return `[PHASE: CHECKPOINT]${taskLine}
-Stop. Summarize what changed and where, what is verified and how, what is still open. Then wait.`;
+Stop. Record any choices not covered by the plan as decisions. Then summarize what changed and where, what is verified and how, what is still open. Then wait.`;
     case "PROPOSE":
       if (isDiscussing(snapshot)) return `[PHASE: PROPOSE — DISCUSSION]${taskLine}`;
       return `[PHASE: PROPOSE]${taskLine}

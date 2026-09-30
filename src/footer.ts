@@ -134,10 +134,10 @@ export function buildFooter(
           left += ` ${theme.fg("dim", "•")} ${theme.fg("accent", `${pendingTodos} todo${pendingTodos === 1 ? "" : "s"}`)}`;
         }
 
-        // Add decision count if there are recorded decisions
-        const decisionCount = decisions.count();
-        if (decisionCount > 0) {
-          left += ` ${theme.fg("dim", "•")} ${theme.fg("accent", `${decisionCount} decision${decisionCount === 1 ? "" : "s"}`)}`;
+        // Add decision count if there are unaddressed decisions
+        const unaddressedDecisions = decisions.unaddressedCount();
+        if (unaddressedDecisions > 0) {
+          left += ` ${theme.fg("dim", "•")} ${theme.fg("accent", `${unaddressedDecisions} decision${unaddressedDecisions === 1 ? "" : "s"}`)}`;
         }
 
         const leftWidth = visibleWidth(left);
