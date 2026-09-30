@@ -206,4 +206,44 @@ describe("pairMachine", () => {
     expect(phase(actor)).toBe("REFINE");
     expect(isDiscussing(actor.getSnapshot())).toBe(false);
   });
+
+  it("toggles vibe mode on and off, preserving the workflow phase", () => {
+    const actor = started();
+    actor.send({ type: "TASK", task: "t", effort: "trivial" });
+    expect(phase(actor)).toBe("BUILD");
+    actor.send({ type: "VIBE_ON" });
+    expect(phase(actor)).toBe("VIBE");
+    expect(isReadOnly(actor.getSnapshot())).toBe(false);
+    expect(isWorking(actor.getSnapshot())).toBe(false);
+    expect(isDiscussing(actor.getSnapshot())).toBe(false);
+    actor.send({ type: "VIBE_OFF" });
+    expect(phase(actor)).toBe("BUILD");
+    expect(isWorking(actor.getSnapshot())).toBe(true);
+  });
+
+  it("vibe mode overrides read-only phases", () => {
+    const actor = started();
+    actor.send({ type: "TASK", task: "t", effort: "standard" });
+    expect(phase(actor)).toBe("DESIGN");
+    expect(isReadOnly(actor.getSnapshot())).toBe(true);
+    actor.send({ type: "VIBE_ON" });
+    expect(phase(actor)).toBe("VIBE");
+    expect(isReadOnly(actor.getSnapshot())).toBe(false);
+    actor.send({ type: "VIBE_OFF" });
+    expect(phase(actor)).toBe("DESIGN");
+    expect(isReadOnly(actor.getSnapshot())).toBe(true);
+  });
+
+  it("restores vibe mode from a persisted snapshot", () => {
+    const actor = started();
+    actor.send({ type: "TASK", task: "t", effort: "trivial" });
+    actor.send({ type: "VIBE_ON" });
+    const restored = createActor(pairMachine, {
+      snapshot: JSON.parse(JSON.stringify(actor.getPersistedSnapshot())),
+    });
+    restored.start();
+    expect(phase(restored)).toBe("VIBE");
+    restored.send({ type: "VIBE_OFF" });
+    expect(phase(restored)).toBe("BUILD");
+  });
 });

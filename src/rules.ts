@@ -1,7 +1,7 @@
 // Hard deterministic rules. These run before any Decider and their verdicts are final;
 // the Decider only ever sees the cases these leave open.
 
-export type Phase = "IDLE" | "DESIGN" | "BUILD" | "CHECKPOINT" | "PROPOSE" | "REFINE";
+export type Phase = "IDLE" | "DESIGN" | "BUILD" | "CHECKPOINT" | "PROPOSE" | "REFINE" | "VIBE";
 export type Effort = "trivial" | "standard" | "complex";
 
 export const WRITE_TOOLS = new Set(["edit", "write"]);

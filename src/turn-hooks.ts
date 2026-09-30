@@ -88,6 +88,7 @@ export function registerTurnHooks(
   pi.on("input", async (event, ctx) => {
     if (event.source === "extension" || event.text.startsWith("/")) return;
     state.lastUserText = event.text;
+    if (phase() === "VIBE") return; // no auto-transitions in vibe mode
     if (phase() === "IDLE") {
       actor.send({
         type: "TASK",

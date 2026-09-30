@@ -23,6 +23,7 @@ You work in phases a human moves you through. Each turn starts with a [PHASE: ..
 - CHECKPOINT: read-only. Summarize for review, then discuss the work with the user. From a refine checkpoint, you can continue refining or go back to building.
 - PROPOSE: read-only. Propose what, if anything, is worth compressing and why, and what you would leave alone. Then discuss it with the user.
 - REFINE: carry out the agreed compression without changing behaviour, in rounds you verify by running the tests.
+- VIBE: override mode. No phase enforcement, no checkpoints, no read-only restrictions. Work directly with the user. Prioritize speed over quality; skip best practices.
 
 In read-only phases (DESIGN, CHECKPOINT, PROPOSE) you cannot edit or write files. Bash is read-only. Do not call edit, write, or mutating bash commands; they will be blocked. Call ${RESUME_TOOL} to propose moving to a working phase.
 
@@ -61,7 +62,9 @@ export type PairEvent =
   | { type: "CONTINUE" }
   /** From a refine checkpoint, go back to BUILD instead of REFINE. */
   | { type: "RESUME_BUILD" }
-  | { type: "DONE" };
+  | { type: "DONE" }
+  | { type: "VIBE_ON" }
+  | { type: "VIBE_OFF" };
 
 // Where the agent has handed something over and it is the user's move: a one-time selector, then
 // discussion once the user starts talking.
@@ -103,41 +106,53 @@ export const pairMachine = setup({
   },
 }).createMachine({
   id: "pair",
-  initial: "IDLE",
+  type: "parallel",
   context: { writesPerFile: [], refining: false },
   states: {
-    IDLE: {
-      on: {
-        TASK: [
-          { guard: "trivial", target: "task.BUILD", actions: "startTask" },
-          { target: "task.DESIGN", actions: "startTask" },
-        ],
-        PLAN: { target: "task.DESIGN", actions: "startTask" },
-        REFINE: { target: "task.PROPOSE", actions: "startRefineTask" },
-      },
-    },
-    task: {
-      initial: "DESIGN",
-      on: { DONE: { target: "IDLE", actions: "clearTask" } },
+    workflow: {
+      initial: "IDLE",
       states: {
-        DESIGN: { tags: ["readOnly", "discussing"], on: { CONTINUE: "BUILD" } },
-        BUILD: {
-          entry: "enterBuild",
-          tags: "working",
-          on: { WRITE: { actions: "countWrite" }, CHECKPOINT: "CHECKPOINT" },
-        },
-        CHECKPOINT: {
-          ...review,
+        IDLE: {
           on: {
-            CONTINUE: [{ guard: "refining", target: "REFINE" }, { target: "BUILD" }],
-            RESUME_BUILD: { target: "BUILD", actions: "enterBuild" },
-            PLAN: "DESIGN",
-            REFINE: "PROPOSE",
+            TASK: [
+              { guard: "trivial", target: "task.BUILD", actions: "startTask" },
+              { target: "task.DESIGN", actions: "startTask" },
+            ],
+            PLAN: { target: "task.DESIGN", actions: "startTask" },
+            REFINE: { target: "task.PROPOSE", actions: "startRefineTask" },
           },
         },
-        // Behaviour-preserving compression. It starts by agreeing what is worth compressing.
-        PROPOSE: { ...review, entry: "enterRefine", on: { CONTINUE: "REFINE" } },
-        REFINE: { tags: "working", on: { CHECKPOINT: "CHECKPOINT" } },
+        task: {
+          initial: "DESIGN",
+          on: { DONE: { target: "IDLE", actions: "clearTask" } },
+          states: {
+            DESIGN: { tags: ["readOnly", "discussing"], on: { CONTINUE: "BUILD" } },
+            BUILD: {
+              entry: "enterBuild",
+              tags: "working",
+              on: { WRITE: { actions: "countWrite" }, CHECKPOINT: "CHECKPOINT" },
+            },
+            CHECKPOINT: {
+              ...review,
+              on: {
+                CONTINUE: [{ guard: "refining", target: "REFINE" }, { target: "BUILD" }],
+                RESUME_BUILD: { target: "BUILD", actions: "enterBuild" },
+                PLAN: "DESIGN",
+                REFINE: "PROPOSE",
+              },
+            },
+            // Behaviour-preserving compression. It starts by agreeing what is worth compressing.
+            PROPOSE: { ...review, entry: "enterRefine", on: { CONTINUE: "REFINE" } },
+            REFINE: { tags: "working", on: { CHECKPOINT: "CHECKPOINT" } },
+          },
+        },
+      },
+    },
+    mode: {
+      initial: "normal",
+      states: {
+        normal: { on: { VIBE_ON: "vibe" } },
+        vibe: { on: { VIBE_OFF: "normal" } },
       },
     },
   },
@@ -220,27 +235,33 @@ export class PairActorImpl implements PairActor {
 }
 
 export function phaseOf(snapshot: PairSnapshot): Phase {
-  if (snapshot.value === "IDLE") return "IDLE";
-  const inner = (snapshot.value as { task: Phase | Partial<Record<Phase, string>> }).task;
+  if (snapshot.matches({ mode: "vibe" })) return "VIBE";
+  const workflow = (snapshot.value as { workflow: unknown }).workflow;
+  if (workflow === "IDLE") return "IDLE";
+  const inner = (workflow as { task: Phase | Partial<Record<Phase, string>> }).task;
   return typeof inner === "string" ? inner : (Object.keys(inner)[0] as Phase);
 }
 
 export function isReadOnly(snapshot: PairSnapshot): boolean {
+  if (phaseOf(snapshot) === "VIBE") return false;
   return snapshot.hasTag("readOnly");
 }
 
 /** CHECKPOINT or PROPOSE: the agent has handed something over for the user. */
 export function isReview(snapshot: PairSnapshot): boolean {
+  if (phaseOf(snapshot) === "VIBE") return false;
   return snapshot.hasTag("review");
 }
 
 /** Making changes the agent may hand over for review: BUILD or REFINE. */
 export function isWorking(snapshot: PairSnapshot): boolean {
+  if (phaseOf(snapshot) === "VIBE") return false;
   return snapshot.hasTag("working");
 }
 
 /** Talking things through: DESIGN, or a checkpoint or refinement proposal after the one-time selector. */
 export function isDiscussing(snapshot: PairSnapshot): boolean {
+  if (phaseOf(snapshot) === "VIBE") return false;
   return snapshot.hasTag("discussing");
 }
 
@@ -285,6 +306,10 @@ Propose, then stop and wait: nothing changes until you and the user agree.`;
 Carry out the agreed refinement.`;
     case "IDLE":
       return "[PHASE: IDLE]";
+    case "VIBE":
+      return `[PHASE: VIBE]${taskLine}
+No phase enforcement. Work directly with the user.
+Prioritize speed over quality. Skip best practices.`;
   }
 }
 

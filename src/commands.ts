@@ -316,6 +316,17 @@ export function registerCommands(
     },
   });
 
+  pi.registerCommand("vibe", {
+    description: "Toggle vibe mode: no phase enforcement, work directly with the user",
+    handler: async (_args, ctx) => {
+      const snapshot = actor.getSnapshot();
+      const isVibe = phaseOf(snapshot) === "VIBE";
+      actor.send({ type: isVibe ? "VIBE_OFF" : "VIBE_ON" });
+      ctx.ui.notify(isVibe ? "Vibe mode off" : "Vibe mode on", "info");
+      pi.sendMessage(bannerMessage(actor.getSnapshot()), { triggerTurn: true });
+    },
+  });
+
   pi.registerCommand("todo", {
     description: "Add a todo or view the list: /todo <text> to add, /todo to view",
     handler: async (args, ctx) => {

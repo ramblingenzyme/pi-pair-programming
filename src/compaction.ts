@@ -30,7 +30,11 @@ export function buildCompactionInstructions(
 
   const parts: string[] = [WORKFLOW_CONTEXT];
 
-  if (phase === "IDLE" && !task) {
+  if (phase === "VIBE") {
+    parts.push(
+      "\nCurrent state: VIBE mode. No phase enforcement. Work directly with the user.",
+    );
+  } else if (phase === "IDLE" && !task) {
     parts.push(
       "\nCurrent state: IDLE with no active task. The session may contain completed work from earlier.",
     );
