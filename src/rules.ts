@@ -16,14 +16,14 @@ const DESTRUCTIVE = [
   /\b(drop|truncate)\s+(table|database)\b/i,
   /\bdd\b.*\bof=/i,
   /\bmkfs\b/i,
-  /\b(chmod|chown)\b.*\b777\b/i,
+  /\b(chmod|chown)\b.*\b[0-7]*777\b/i,
 ];
 
 // Anything that can mutate the filesystem or the world. DESIGN and CHECKPOINT are read-only phases.
 const MUTATING = [
   ...DESTRUCTIVE,
   /\b(rm|rmdir|mv|cp|mkdir|touch|ln|tee|truncate|shred|chmod|chown)\b/i,
-  /(^|[^<>&0-9])>(?!&)|>>/,
+  /(^|[^>])>(?!&[0-9-])(?!>&[0-9-])(?!\s*\/dev\/null)/,
   /\bsed\s+(-\w*i|--in-place)/i,
   /\b(npm|pnpm|yarn|bun)\s+(install|add|remove|uninstall|update|ci|publish|link)\b/i,
   /\bpip3?\s+(install|uninstall)\b/i,

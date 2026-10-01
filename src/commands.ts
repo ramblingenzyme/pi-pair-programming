@@ -534,6 +534,7 @@ export function registerCommands(
         ctx.ui.notify("No active task to end.", "info");
         return;
       }
+      await abortRunningTurn(ctx);
       actor.send({ type: "DONE" });
     },
   });

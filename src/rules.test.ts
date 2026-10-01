@@ -13,6 +13,9 @@ describe("isDestructive", () => {
     "sudo make install",
     "git push -f origin main",
     "git reset --hard HEAD~1",
+    "chmod 0777 file",
+    "chmod 4777 file",
+    "chmod 777 file",
   ]) {
     it(`catches ${command}`, () => expect(isDestructive(command)).toBe(true));
   }
@@ -28,6 +31,8 @@ describe("isMutating", () => {
     "git log --oneline",
     "ls 2>&1",
     "cmd 2>/dev/null | head",
+    "cmd 2> /dev/null",
+    "cmd >&2",
   ]) {
     it(`allows ${command} in read-only phases`, () => expect(isMutating(command)).toBe(false));
   }
@@ -37,6 +42,9 @@ describe("isMutating", () => {
     "npm install left-pad",
     "git commit -m x",
     "mv a b",
+    "cmd 2>file",
+    "cmd &>file",
+    "cmd >&file",
   ]) {
     it(`blocks ${command} in read-only phases`, () => expect(isMutating(command)).toBe(true));
   }
