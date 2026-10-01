@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
+import { matchesKey, truncateToWidth, type TUI } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import type { Decider } from "./decider.ts";
 import { setPersistedJudgeModel } from "./judge-config.ts";
@@ -27,14 +27,16 @@ type ListState =
 class TodoListComponent {
   private todos: TodoStore;
   private theme: Theme;
+  private tui: TUI;
   private onDone: (result: TodoAction) => void;
   private listState: ListState;
   private cachedWidth?: number;
   private cachedLines?: string[];
 
-  constructor(todos: TodoStore, theme: Theme, onDone: (result: TodoAction) => void) {
+  constructor(todos: TodoStore, theme: Theme, tui: TUI, onDone: (result: TodoAction) => void) {
     this.todos = todos;
     this.theme = theme;
+    this.tui = tui;
     this.onDone = onDone;
     const state = todos.getState();
     this.listState = state.todos.length > 0 ? { mode: "focused", index: 0 } : { mode: "empty" };
@@ -63,6 +65,7 @@ class TodoListComponent {
             if (this.listState.index > 0) {
               this.listState = { mode: "focused", index: this.listState.index - 1 };
               this.cachedLines = undefined;
+              this.tui.requestRender();
             }
             break;
           case "down":
@@ -70,11 +73,13 @@ class TodoListComponent {
             if (this.listState.index < state.todos.length - 1) {
               this.listState = { mode: "focused", index: this.listState.index + 1 };
               this.cachedLines = undefined;
+              this.tui.requestRender();
             }
             break;
           case " ":
             this.todos.toggle(this.listState.index);
             this.cachedLines = undefined;
+            this.tui.requestRender();
             break;
           case "a":
             this.onDone({ action: "add" });
@@ -82,6 +87,7 @@ class TodoListComponent {
           case "d":
             this.listState = { mode: "pendingDelete", index: this.listState.index };
             this.cachedLines = undefined;
+            this.tui.requestRender();
             break;
         }
         break;
@@ -104,6 +110,7 @@ class TodoListComponent {
           case "ctrl+c":
             this.listState = { mode: "focused", index: this.listState.index };
             this.cachedLines = undefined;
+            this.tui.requestRender();
             break;
           case "d":
             this.todos.remove(this.listState.index);
@@ -115,6 +122,7 @@ class TodoListComponent {
               this.listState = { mode: "focused", index: newIndex };
             }
             this.cachedLines = undefined;
+            this.tui.requestRender();
             break;
         }
         break;
@@ -214,14 +222,16 @@ class TodoListComponent {
 class DecisionListComponent {
   private decisions: DecisionStore;
   private theme: Theme;
+  private tui: TUI;
   private onDone: (result: DecisionAction) => void;
   private listState: ListState;
   private cachedWidth?: number;
   private cachedLines?: string[];
 
-  constructor(decisions: DecisionStore, theme: Theme, onDone: (result: DecisionAction) => void) {
+  constructor(decisions: DecisionStore, theme: Theme, tui: TUI, onDone: (result: DecisionAction) => void) {
     this.decisions = decisions;
     this.theme = theme;
+    this.tui = tui;
     this.onDone = onDone;
     const state = decisions.getState();
     this.listState = state.decisions.length > 0 ? { mode: "focused", index: 0 } : { mode: "empty" };
@@ -254,6 +264,7 @@ class DecisionListComponent {
             if (this.listState.index > 0) {
               this.listState = { mode: "focused", index: this.listState.index - 1 };
               this.cachedLines = undefined;
+              this.tui.requestRender();
             }
             break;
           case "down":
@@ -261,15 +272,18 @@ class DecisionListComponent {
             if (this.listState.index < state.decisions.length - 1) {
               this.listState = { mode: "focused", index: this.listState.index + 1 };
               this.cachedLines = undefined;
+              this.tui.requestRender();
             }
             break;
           case " ":
             this.decisions.toggleAddressed(this.listState.index);
             this.cachedLines = undefined;
+            this.tui.requestRender();
             break;
           case "d":
             this.listState = { mode: "pendingDelete", index: this.listState.index };
             this.cachedLines = undefined;
+            this.tui.requestRender();
             break;
         }
         break;
@@ -289,6 +303,7 @@ class DecisionListComponent {
           case "ctrl+c":
             this.listState = { mode: "focused", index: this.listState.index };
             this.cachedLines = undefined;
+            this.tui.requestRender();
             break;
           case "d":
             this.decisions.remove(this.listState.index);
@@ -300,6 +315,7 @@ class DecisionListComponent {
               this.listState = { mode: "focused", index: newIndex };
             }
             this.cachedLines = undefined;
+            this.tui.requestRender();
             break;
         }
         break;
@@ -571,8 +587,8 @@ export function registerCommands(
 
   async function showDecisionList(ctx: ExtensionContext): Promise<void> {
     while (true) {
-      const result = await ctx.ui.custom<DecisionAction>((_tui, theme, _kb, done) => {
-        return new DecisionListComponent(decisions, theme, (action) => done(action));
+      const result = await ctx.ui.custom<DecisionAction>((tui, theme, _kb, done) => {
+        return new DecisionListComponent(decisions, theme, tui, (action) => done(action));
       });
       if (result.action === "cancel") return;
       if (result.action === "select") {
@@ -590,8 +606,8 @@ export function registerCommands(
 
   async function showTodoList(ctx: ExtensionContext): Promise<void> {
     while (true) {
-      const result = await ctx.ui.custom<TodoAction>((_tui, theme, _kb, done) => {
-        return new TodoListComponent(todos, theme, (action) => done(action));
+      const result = await ctx.ui.custom<TodoAction>((tui, theme, _kb, done) => {
+        return new TodoListComponent(todos, theme, tui, (action) => done(action));
       });
       if (result.action === "cancel") return;
       if (result.action === "select") {

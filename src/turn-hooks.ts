@@ -122,11 +122,12 @@ export function registerTurnHooks(
       const command = event.input.command;
       if (isReadOnly(actor.getSnapshot()) && isMutating(command)) {
         const target = readOnlyTargetPhase(actor.getSnapshot());
+        const currentPhase = phase();
         const moved = target ? await proposePhaseChange(ctx, target) : false;
         if (moved) actor.send({ type: "CONTINUE" });
         return {
           block: true,
-          reason: `${phase()} phase is read-only.${moved ? ` Moved to ${target}.` : ""}`,
+          reason: `${currentPhase} phase is read-only.${moved ? ` Moved to ${target}.` : ""}`,
         };
       }
       if (isDestructive(command)) {
@@ -145,11 +146,12 @@ export function registerTurnHooks(
     // Tools are already removed in read-only phases; this catches calls planned before the removal landed.
     if (isReadOnly(actor.getSnapshot())) {
       const target = readOnlyTargetPhase(actor.getSnapshot());
+      const currentPhase = phase();
       const moved = target ? await proposePhaseChange(ctx, target) : false;
       if (moved) actor.send({ type: "CONTINUE" });
       return {
         block: true,
-        reason: `${phase()} phase is read-only.${moved ? ` Moved to ${target}.` : ""}`,
+        reason: `${currentPhase} phase is read-only.${moved ? ` Moved to ${target}.` : ""}`,
       };
     }
     if (isThrashing(writeCounts())) {
