@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import type { Decider } from "./decider.ts";
@@ -417,10 +417,18 @@ export function registerCommands(
   const phase = () => phaseOf(actor.getSnapshot());
   const context = () => actor.getSnapshot().context;
 
+  // Abort any running agent turn so a command-triggered new turn doesn't bleed into it.
+  async function abortRunningTurn(ctx: ExtensionCommandContext): Promise<void> {
+    if (!ctx.isIdle()) {
+      ctx.abort();
+      await ctx.waitForIdle();
+    }
+  }
+
   // Routes a command that is valid in IDLE (with a task) or at a CHECKPOINT (without one),
   // and notifies the user when called in any other phase.
   async function idleOrCheckpoint(
-    ctx: ExtensionContext,
+    ctx: ExtensionCommandContext,
     onIdle: () => Promise<void>,
     onCheckpoint: () => void,
     errorPrefix: string,
@@ -437,6 +445,7 @@ export function registerCommands(
       );
       return;
     }
+    await abortRunningTurn(ctx);
     pi.sendMessage(bannerMessage(actor.getSnapshot()), { triggerTurn: true });
   }
 
@@ -456,6 +465,7 @@ export function registerCommands(
         ctx.ui.notify(`Nothing to continue: phase is ${phase()}`, "info");
         return;
       }
+      await abortRunningTurn(ctx);
       actor.send({ type: "CONTINUE" });
       pi.sendMessage(bannerMessage(actor.getSnapshot()), { triggerTurn: true });
     },
@@ -517,6 +527,7 @@ export function registerCommands(
     handler: async (_args, ctx) => {
       const snapshot = actor.getSnapshot();
       const isVibe = phaseOf(snapshot) === "VIBE";
+      await abortRunningTurn(ctx);
       actor.send({ type: isVibe ? "VIBE_OFF" : "VIBE_ON" });
       ctx.ui.notify(isVibe ? "Vibe mode off" : "Vibe mode on", "info");
       pi.sendMessage(bannerMessage(actor.getSnapshot()), { triggerTurn: true });

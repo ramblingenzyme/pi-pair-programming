@@ -109,14 +109,24 @@ export function registerTurnHooks(
     return context().task ? { message: msg(), systemPrompt } : { systemPrompt };
   });
 
+  async function proposePhaseChange(ctx: ExtensionContext, target: string): Promise<boolean> {
+    if (!ctx.hasUI) return false;
+    return ctx.ui.confirm(
+      `Move to ${target}?`,
+      `Mutating call blocked in ${phase()} phase. Move to ${target} to make changes?`,
+    );
+  }
+
   pi.on("tool_call", async (event, ctx) => {
     if (isToolCallEventType("bash", event)) {
       const command = event.input.command;
       if (isReadOnly(actor.getSnapshot()) && isMutating(command)) {
         const target = readOnlyTargetPhase(actor.getSnapshot());
+        const moved = target ? await proposePhaseChange(ctx, target) : false;
+        if (moved) actor.send({ type: "CONTINUE" });
         return {
           block: true,
-          reason: `${phase()} phase is read-only. Call yield to propose moving to ${target}.`,
+          reason: `${phase()} phase is read-only.${moved ? ` Moved to ${target}.` : ""}`,
         };
       }
       if (isDestructive(command)) {
@@ -135,9 +145,11 @@ export function registerTurnHooks(
     // Tools are already removed in read-only phases; this catches calls planned before the removal landed.
     if (isReadOnly(actor.getSnapshot())) {
       const target = readOnlyTargetPhase(actor.getSnapshot());
+      const moved = target ? await proposePhaseChange(ctx, target) : false;
+      if (moved) actor.send({ type: "CONTINUE" });
       return {
         block: true,
-        reason: `${phase()} phase is read-only. Call yield to propose moving to ${target}.`,
+        reason: `${phase()} phase is read-only.${moved ? ` Moved to ${target}.` : ""}`,
       };
     }
     if (isThrashing(writeCounts())) {

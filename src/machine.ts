@@ -32,6 +32,7 @@ approval, until the user asks for one. In a discussion, do not repeat the summar
 Use yield to hand over based on your current state:
 - In discussion phases (DESIGN, CHECKPOINT-discuss, PROPOSE-discuss): propose moving on. The user confirms.
 - In working phases (BUILD, REFINE): request a checkpoint for review.
+- In review states (CHECKPOINT, PROPOSE before discussion): summarize and wait. Do not call yield.
 
 In BUILD and REFINE, record decisions you made without user discussion or approval that have real impact on the outcome. This includes architectural choices, implementation approaches, interface designs, and trade-offs. Don't record trivial decisions or ones already discussed with the user. Use record_decision. Summarize them at the next checkpoint.
 
@@ -294,11 +295,13 @@ ${effort === "complex" ? "Explore the affected code thoroughly before any plan. 
       return `[PHASE: BUILD]${taskLine}
 Implement the plan.`;
     case "CHECKPOINT":
-      if (isDiscussing(snapshot)) return `[PHASE: CHECKPOINT — DISCUSSION]${taskLine}`;
+      if (isDiscussing(snapshot)) return `[PHASE: CHECKPOINT — DISCUSSION]${taskLine}
+Read-only. Discuss the work with the user. Do not edit or write files.`;
       return `[PHASE: CHECKPOINT]${taskLine}
-Stop. Record any choices not covered by the plan as decisions. Then summarize what changed and where, what is verified and how, what is still open. Then wait.`;
+Stop. Record any autonomous decisions made during this build that weren't discussed with the user. Then summarize what changed and where, what is verified and how, what is still open. Then wait.`;
     case "PROPOSE":
-      if (isDiscussing(snapshot)) return `[PHASE: PROPOSE — DISCUSSION]${taskLine}`;
+      if (isDiscussing(snapshot)) return `[PHASE: PROPOSE — DISCUSSION]${taskLine}
+Read-only. Discuss the refinement proposal. Do not edit or write files.`;
       return `[PHASE: PROPOSE]${taskLine}
 Propose, then stop and wait: nothing changes until you and the user agree.`;
     case "REFINE":
