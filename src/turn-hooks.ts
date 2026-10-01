@@ -124,11 +124,12 @@ export function registerTurnHooks(
         const target = readOnlyTargetPhase(actor.getSnapshot());
         const currentPhase = phase();
         const moved = target ? await proposePhaseChange(ctx, target) : false;
-        if (moved) actor.send({ type: "CONTINUE" });
-        return {
-          block: true,
-          reason: `${currentPhase} phase is read-only.${moved ? ` Moved to ${target}.` : ""}`,
-        };
+        if (moved) {
+          actor.send({ type: "CONTINUE" });
+          // Phase moved; let the call through to the destructive check below
+        } else {
+          return { block: true, reason: `${currentPhase} phase is read-only.` };
+        }
       }
       if (isDestructive(command)) {
         if (!ctx.hasUI)
@@ -143,16 +144,17 @@ export function registerTurnHooks(
     }
 
     if (!WRITE_TOOLS.has(event.toolName)) return;
-    // Tools are already removed in read-only phases; this catches calls planned before the removal landed.
+    // Write tools are blocked in read-only phases via this hook.
     if (isReadOnly(actor.getSnapshot())) {
       const target = readOnlyTargetPhase(actor.getSnapshot());
       const currentPhase = phase();
       const moved = target ? await proposePhaseChange(ctx, target) : false;
-      if (moved) actor.send({ type: "CONTINUE" });
-      return {
-        block: true,
-        reason: `${currentPhase} phase is read-only.${moved ? ` Moved to ${target}.` : ""}`,
-      };
+      if (moved) {
+        actor.send({ type: "CONTINUE" });
+        // Phase moved; let the call through to the checks below
+      } else {
+        return { block: true, reason: `${currentPhase} phase is read-only.` };
+      }
     }
     if (isThrashing(writeCounts())) {
       return { block: true, reason: "Checkpoint required before further writes." };
