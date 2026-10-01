@@ -46,7 +46,7 @@ export default function pairProgrammer(pi: ExtensionAPI) {
   const decider = createDecider(pi, resolveJudgeModel, () => state.session);
 
   registerSessionHooks(pi, actor, todos, decisions, state);
-  registerTurnHooks(pi, actor, decider, state);
+  registerTurnHooks(pi, actor, decider, decisions, state);
   registerCommands(
     pi,
     actor,

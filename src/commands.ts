@@ -462,7 +462,7 @@ export function registerCommands(
       return;
     }
     await abortRunningTurn(ctx);
-    pi.sendMessage(bannerMessage(actor.getSnapshot()), { triggerTurn: true });
+    pi.sendMessage(bannerMessage(actor.getSnapshot(), decisions.getState().decisions), { triggerTurn: true });
   }
 
   pi.registerCommand("phase", {
@@ -483,7 +483,7 @@ export function registerCommands(
       }
       await abortRunningTurn(ctx);
       actor.send({ type: "CONTINUE" });
-      pi.sendMessage(bannerMessage(actor.getSnapshot()), { triggerTurn: true });
+      pi.sendMessage(bannerMessage(actor.getSnapshot(), decisions.getState().decisions), { triggerTurn: true });
     },
   });
 
@@ -724,7 +724,7 @@ export function registerTools(
   lastUserText: () => string,
 ): void {
   const context = () => actor.getSnapshot().context;
-  const bannerText = () => banner(actor.getSnapshot());
+  const bannerText = () => banner(actor.getSnapshot(), decisions.getState().decisions);
 
   // Unified yield tool: in discussion phases, propose moving on (user confirms); in working phases, request checkpoint.
   pi.registerTool({

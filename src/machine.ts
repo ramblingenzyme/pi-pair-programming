@@ -282,9 +282,11 @@ export function readOnlyTargetPhase(snapshot: PairSnapshot): string | undefined 
   }
 }
 
+import type { Decision } from "./decisions.ts";
+
 // Stopping is restated here rather than left to PROTOCOL: tool gating cannot stop the agent talking,
 // and the latest instruction is the one it follows.
-export function banner(snapshot: PairSnapshot): string {
+export function banner(snapshot: PairSnapshot, decisions?: Decision[]): string {
   const { task, effort } = snapshot.context;
   const taskLine = task ? `\nTask: ${task}` : "";
   switch (phaseOf(snapshot)) {
@@ -297,8 +299,14 @@ Implement the plan.`;
     case "CHECKPOINT":
       if (isDiscussing(snapshot)) return `[PHASE: CHECKPOINT — DISCUSSION]${taskLine}
 Read-only. Discuss the work with the user. Do not edit or write files.`;
+      const recorded = decisions?.length
+        ? decisions.map((d) => `- ${d.decision}`).join("\n")
+        : "none";
       return `[PHASE: CHECKPOINT]${taskLine}
-Stop. Record any autonomous decisions made during this build that weren't discussed with the user. Then summarize what changed and where, what is verified and how, what is still open. Then wait.`;
+Stop. Record any autonomous decisions made during this build that weren't discussed with the user. Then summarize what changed and where, what is verified and how, what is still open. Then wait.
+
+Decisions already recorded:
+${recorded}`;
     case "PROPOSE":
       if (isDiscussing(snapshot)) return `[PHASE: PROPOSE — DISCUSSION]${taskLine}
 Read-only. Discuss the refinement proposal. Do not edit or write files.`;
@@ -316,8 +324,8 @@ Prioritize speed over quality. Skip best practices.`;
   }
 }
 
-export function bannerMessage(snapshot: PairSnapshot) {
-  return { customType: BANNER, content: banner(snapshot), display: false };
+export function bannerMessage(snapshot: PairSnapshot, decisions?: Decision[]) {
+  return { customType: BANNER, content: banner(snapshot, decisions), display: false };
 }
 
 /**

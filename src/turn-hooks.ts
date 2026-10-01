@@ -6,6 +6,7 @@ import {
   isToolCallEventType,
 } from "@earendil-works/pi-coding-agent";
 import type { Decider } from "./decider.ts";
+import type { DecisionStore } from "./decisions.ts";
 import {
   type PairActor,
   type PairEvent,
@@ -32,11 +33,12 @@ export function registerTurnHooks(
   pi: ExtensionAPI,
   actor: PairActor,
   decider: Decider,
+  decisions: DecisionStore,
   state: HookState,
 ): void {
   const phase = () => phaseOf(actor.getSnapshot());
   const context = () => actor.getSnapshot().context;
-  const msg = () => bannerMessage(actor.getSnapshot());
+  const msg = () => bannerMessage(actor.getSnapshot(), decisions.getState().decisions);
   const writeCounts = () => new Map(context().writesPerFile);
 
   function bannerEntry(): SessionBoundaryDraft {

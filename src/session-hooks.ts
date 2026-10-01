@@ -82,6 +82,6 @@ export function registerSessionHooks(
   });
 
   pi.on("session_compact", async () => {
-    if (actor.getSnapshot().context.task) pi.sendMessage(bannerMessage(actor.getSnapshot()));
+    if (actor.getSnapshot().context.task) pi.sendMessage(bannerMessage(actor.getSnapshot(), decisions.getState().decisions));
   });
 }
