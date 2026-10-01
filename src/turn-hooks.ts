@@ -72,7 +72,7 @@ export function registerTurnHooks(
       options.push("Continue building");
     }
     options.push("Propose refinements", "Task done");
-    const choice = await ctx.ui.select("Checkpoint review", options);
+    const choice = await ctx.ui.select("Checkpoint review", options, { signal: ctx.signal });
     switch (choice) {
       case "Continue refining":
         return moveOn({ type: "CONTINUE" });
@@ -84,6 +84,8 @@ export function registerTurnHooks(
         actor.send({ type: "DONE" });
         return;
     }
+    // Abort closes the menu without the user choosing; only a deliberate dismissal is "discussing".
+    if (ctx.signal?.aborted) return;
     ctx.ui.notify(DISCUSS_HINT, "info");
   }
 
@@ -113,9 +115,12 @@ export function registerTurnHooks(
 
   async function proposePhaseChange(ctx: ExtensionContext, target: string): Promise<boolean> {
     if (!ctx.hasUI) return false;
+    // Wired to the run's abort signal so a mid-dialog abort (e.g. a queued /continue) closes it
+    // instead of leaving waitForIdle blocked on the open dialog.
     return ctx.ui.confirm(
       `Move to ${target}?`,
       `Mutating call blocked in ${phase()} phase. Move to ${target} to make changes?`,
+      { signal: ctx.signal },
     );
   }
 
@@ -125,21 +130,37 @@ export function registerTurnHooks(
       if (isReadOnly(actor.getSnapshot()) && isMutating(command)) {
         const target = readOnlyTargetPhase(actor.getSnapshot());
         const currentPhase = phase();
-        const moved = target ? await proposePhaseChange(ctx, target) : false;
-        if (moved) {
+        if (!target) return { block: true, reason: `${currentPhase} phase is read-only.` };
+        // A destructive call folds the phase move and the allowance into one confirm, so the
+        // user isn't asked to move to a writable phase and then separately asked to allow the
+        // same command. Every destructive command is mutating, so this always matches here.
+        if (isDestructive(command)) {
+          if (!ctx.hasUI)
+            return { block: true, reason: `${currentPhase} phase is read-only.` };
+          const choice = await ctx.ui.select(
+            `Destructive command in ${currentPhase} phase:\n\n  ${command}\n\nMove to ${target} and allow?`,
+            ["No", `Yes, move to ${target}`],
+            { signal: ctx.signal },
+          );
+          if (choice !== `Yes, move to ${target}`)
+            return { block: true, reason: `${currentPhase} phase is read-only.` };
           actor.send({ type: "CONTINUE" });
-          // Phase moved; let the call through to the destructive check below
-        } else {
-          return { block: true, reason: `${currentPhase} phase is read-only.` };
+          return;
         }
+        const moved = await proposePhaseChange(ctx, target);
+        if (!moved) return { block: true, reason: `${currentPhase} phase is read-only.` };
+        actor.send({ type: "CONTINUE" });
+        return;
       }
       if (isDestructive(command)) {
         if (!ctx.hasUI)
           return { block: true, reason: "Destructive command blocked (no UI to confirm)" };
-        const choice = await ctx.ui.select(`Destructive command:\n\n  ${command}\n\nAllow?`, [
-          "No",
-          "Yes",
-        ]);
+        // Wired to the run's abort signal so the dialog closes with the turn.
+        const choice = await ctx.ui.select(
+          `Destructive command:\n\n  ${command}\n\nAllow?`,
+          ["No", "Yes"],
+          { signal: ctx.signal },
+        );
         if (choice !== "Yes") return { block: true, reason: "Blocked by user" };
       }
       return;

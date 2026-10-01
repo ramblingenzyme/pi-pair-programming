@@ -758,6 +758,9 @@ export function registerTools(
                 ? "Resume refining?"
                 : "Resume building?",
           `You said: "${lastUserText()}"\n\nAgent's reading: ${params.reason}`,
+          // Wire to the run's abort signal so a queued /continue etc. closes the dialog
+          // instead of leaving waitForIdle blocked on it.
+          { signal: ctx.signal },
         );
         if (!confirmed) {
           const text =
