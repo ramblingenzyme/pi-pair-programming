@@ -26,6 +26,7 @@ Judgment calls default to the user's current session model with thinking turned 
 | **CHECKPOINT** | Read only. It summarises its work, then discusses it with you.                                                                                                                      | You continue, re-plan, refine, or finish. From a refine checkpoint, you can also go back to building.    |
 | **PROPOSE**    | Read only. It proposes what is worth compressing, meaning duplication that already exists in the code, not terseness. You discuss the proposal the way you discuss a checkpoint.    | You agree to the proposal.                                                                               |
 | **REFINE**     | It compresses what you agreed, without changing behaviour.                                                                                                                          | The agent calls `yield`, or a failure stops it.                                             |
+| **VIBE**       | Override mode. No phase enforcement, no checkpoints, no read-only restrictions. Work directly with the user.                                                                        | Toggle off to return to normal workflow.                                                    |
 
 Each new prompt in IDLE is classified by effort. **Trivial** tasks go straight to BUILD. **Standard** and **complex** tasks start in DESIGN. For complex tasks the agent is told to explore the code before proposing a plan.
 
@@ -65,6 +66,7 @@ Running `rm -rf`, `sudo`, `git push --force`, `git reset --hard` or similar asks
 These tools are only active in the state that uses them:
 
 - **`yield`**: in discussion phases (DESIGN, CHECKPOINT-discuss, PROPOSE-discuss), the agent proposes moving on and you confirm with your last message quoted. In working phases (BUILD, REFINE), the agent hands over for review when something is worth a look, after a refinement round, or when a refinement fails.
+- **`record_decision`**: in working phases (BUILD, REFINE), the agent records decisions made without user discussion or approval that have real impact on the outcome. Decisions are summarized at the next checkpoint.
 
 ## Flags
 
@@ -79,10 +81,16 @@ In print mode (`pi -p`) nobody can confirm anything. Gates that need you stop th
 
 - **Judge calls:** every call is recorded in the session file as a `pair-judge` entry, with the question, the raw reply or error, and whether the rules answered instead.
 - **Phase state:** saved as `pair-state` entries, which is what resuming restores.
+- **Autonomous decisions:** saved as `pair-decisions` entries, recording choices the agent made without user approval.
+- **Todos:** saved as `pair-todos` entries.
 
 ```sh
 grep -o '"customType":"pair-judge"[^}]*}' ~/.pi/agent/sessions/<project>/<session>.jsonl
 ```
+
+## Compaction
+
+The extension provides phase-aware instructions for pi's compaction summarizer, so that when a session is compacted the workflow state (phase, task, effort, write counts) is preserved and work can resume correctly.
 
 ## Development
 
@@ -91,12 +99,20 @@ pnpm test    # node:test with expect-native
 pnpm check   # tsc
 ```
 
-| File             | Contents                                                         |
-| ---------------- | ---------------------------------------------------------------- |
-| `index.ts`       | Hook wiring: tool gating, gates, commands, agent tools, banners. |
-| `machine.ts`     | The xstate phase machine.                                        |
-| `rules.ts`       | Hard rules.                                                      |
-| `decider.ts`     | The `Decider` interface and the keyword-rule implementation.     |
-| `llm-decider.ts` | The LLM judge.                                                   |
+| File              | Contents                                                                  |
+| ----------------- | ------------------------------------------------------------------------- |
+| `index.ts`        | Entry point: flag registration, extension wiring.                         |
+| `machine.ts`      | The xstate phase machine, snapshot persistence, phase helpers.            |
+| `rules.ts`        | Hard rules (destructive commands, read-only enforcement, thrash limit).   |
+| `commands.ts`     | Slash commands (`/design`, `/continue`, `/refine`, `/done`, `/phase`, `/judge-model`). |
+| `session-hooks.ts`| `session_start` and `session_compact` hook registration.                  |
+| `turn-hooks.ts`   | `input`, `before_agent_start`, `tool_call`, `turn_end`, `agent_before_settle` hook registration. |
+| `decider.ts`      | The `Decider` interface and the keyword-rule implementation.              |
+| `llm-decider.ts`  | The LLM judge.                                                            |
+| `judge-config.ts` | Judge model resolution and session-scoped override persistence.           |
+| `footer.ts`       | Custom footer showing phase, effort, path, model, thinking level, cost, context usage. |
+| `compaction.ts`   | Phase-aware compaction instructions for pi's summarizer.                  |
+| `decisions.ts`    | Autonomous decision recording and branch-aware state reconstruction.      |
+| `todos.ts`        | Todo tracking and branch-aware state reconstruction.                      |
 
 The source must stay erasable TypeScript: no enums and no constructor parameter properties. `node --test` runs files through Node's type stripping, and `tsconfig.json` enforces this with `erasableSyntaxOnly`.

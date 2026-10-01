@@ -25,16 +25,22 @@ Read-only is a state tag (`readOnly`), not a phase list. Edit/write tools are re
 
 - **`machine.ts`**: xstate phase machine, snapshot persistence, phase helpers
 - **`commands.ts`**: Slash commands (`/design`, `/continue`, `/refine`, `/done`, `/phase`, `/judge-model`)
-- **`index.ts`**: Hook wiring, tool gating, agent tools (`yield`), banners
+- **`index.ts`**: Entry point: flag registration, extension wiring
 - **`rules.ts`**: Hard deterministic rules (destructive commands, read-only enforcement, thrash limit)
+- **`session-hooks.ts`**: `session_start` and `session_compact` hook registration
+- **`turn-hooks.ts`**: `input`, `before_agent_start`, `tool_call`, `turn_end`, `agent_before_settle` hook registration
 - **`decider.ts`**: Decider interface and keyword-rule implementation
 - **`llm-decider.ts`**: LLM judge for effort classification and checkpoint decisions
+- **`judge-config.ts`**: Judge model resolution and session-scoped override persistence
 - **`footer.ts`**: Custom footer showing phase, effort, path, model, thinking level, cost, context usage
+- **`compaction.ts`**: Phase-aware compaction instructions for pi's summarizer
+- **`decisions.ts`**: Autonomous decision recording and branch-aware state reconstruction
+- **`todos.ts`**: Todo tracking and branch-aware state reconstruction
 
 ### Extension points
 
 - **Hooks**: `session_start`, `input`, `before_agent_start`, `tool_call`, `turn_end`, `agent_before_settle`, `session_compact`
-- **Tools**: `yield` (propose moving on in discussion phases, request checkpoint in working phases)
+- **Tools**: `yield` (propose moving on in discussion phases, request checkpoint in working phases), `record_decision` (record autonomous decisions in working phases)
 - **Commands**: `/design`, `/continue`, `/refine`, `/done`, `/phase`, `/judge-model`
 
 ## Development
@@ -56,6 +62,8 @@ Phase state persists as `pair-state` entries in the session file. Snapshots from
 
 Judge calls are recorded as `pair-judge` entries with the question, raw reply or error, and whether rules answered instead.
 
+Autonomous decisions are recorded as `pair-decisions` entries. Todos are recorded as `pair-todos` entries. Both are branch-aware: branching gives the correct state for that point in history.
+
 ## ADRs
 
 See `docs/adr/` for architectural decisions:
@@ -67,3 +75,4 @@ See `docs/adr/` for architectural decisions:
 - Agent checkpoint requests are trusted in BUILD
 - Refinement steps sit beside DESIGN and BUILD
 - One yield tool across all phases
+- Record autonomous decisions
