@@ -224,7 +224,7 @@ export function registerTurnHooks(
   });
 
   // Human gates: what settling means depends on the phase. DESIGN and a refinement proposal just
-  // wait; the agent leaves them through yield, which the user confirms. Settling mid-run lands
+  // wait; the agent leaves them through `propose`, which the user confirms. Settling mid-run lands
   // at a checkpoint review, unless the Decider may auto-finish a BUILD run that settled on its own.
   // The checkpoint menu is offered at most once per checkpoint.
   pi.on("agent_before_settle", async (event, ctx) => {

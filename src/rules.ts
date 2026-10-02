@@ -58,7 +58,7 @@ export function midRunCheckpoint(
 
 // Whether the Decider may auto-finish a task at all; anything else always goes to a person. Only a
 // trivial task's result qualifies, and never one that hit the thrash limit. Plans are never
-// auto-approved: approving one is the user's confirm of the agent's yield call.
+// auto-approved: approving one is the user's confirm of the agent's `propose` call.
 export function deciderMayPass(effort: Effort, writesPerFile: Map<string, number>): boolean {
   return effort === "trivial" && isThrashing(writesPerFile) === undefined;
 }

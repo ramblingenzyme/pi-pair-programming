@@ -8,6 +8,7 @@ import {
   banner,
   bannerMessage,
   isDiscussing,
+  isReview,
   isWorking,
   phaseOf,
 } from "./machine.ts";
@@ -727,57 +728,80 @@ export function registerTools(
   const context = () => actor.getSnapshot().context;
   const bannerText = () => banner(actor.getSnapshot(), decisions.getState().decisions);
 
-  // Unified yield tool: in discussion phases, propose moving on (user confirms); in working phases, request checkpoint.
+  // Two phase-specific tools, both always present (stable for prompt caching).
+  // `propose`: in discussion phases, propose moving on (user confirms).
+  // `checkpoint`: in working phases, request a checkpoint for review.
   pi.registerTool({
-    name: "yield",
-    label: "Yield to user",
+    name: "propose",
+    label: "Propose moving on",
     description:
-      "Yield to the user based on your current state. In discussion phases, propose moving on (user confirms). In working phases, request a checkpoint for review.",
+      "In discussion phases (DESIGN, CHECKPOINT — DISCUSSION, PROPOSE — DISCUSSION), propose moving on. The user confirms.",
     parameters: Type.Object({
-      reason: Type.String({ description: "Why you're yielding" }),
+      reason: Type.String({ description: "What you're proposing" }),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const snapshot = actor.getSnapshot();
       const phase = phaseOf(snapshot);
 
-      if (phase === "VIBE" || phase === "IDLE") {
-        throw new Error("No phase to yield from.");
-      }
-
-      if (isDiscussing(snapshot)) {
-        // Discussion phase: prompt user, send CONTINUE
-        const designing = phase === "DESIGN";
-        if (!ctx.hasUI) throw new Error("No one can confirm here; stay where you are.");
-        const proposing = phase === "PROPOSE";
-        const confirmed = await ctx.ui.confirm(
-          designing
-            ? "Build this plan?"
-            : proposing
-              ? "Start the agreed refinement?"
-              : context().refining
-                ? "Resume refining?"
-                : "Resume building?",
-          `You said: "${lastUserText()}"\n\nAgent's reading: ${params.reason}`,
-          // Wire to the run's abort signal so a queued /continue etc. closes the dialog
-          // instead of leaving waitForIdle blocked on it.
-          { signal: ctx.signal },
-        );
-        if (!confirmed) {
-          const text =
-            "The user did not confirm. Stay where you are; do not propose moving on again unless they ask.";
-          return { content: [{ type: "text", text }], details: undefined };
+      if (!isDiscussing(snapshot)) {
+        if (phase === "VIBE" || phase === "IDLE") {
+          throw new Error("No phase to propose from.");
         }
-        actor.send({ type: "CONTINUE" });
-        return { content: [{ type: "text", text: bannerText() }], details: undefined };
+        if (isReview(snapshot)) {
+          throw new Error(
+            "Wait for the user to respond before proposing. Summarize and stop.",
+          );
+        }
+        throw new Error(`Cannot propose in ${phase} phase.`);
       }
 
-      if (isWorking(snapshot)) {
-        // Working phase: send CHECKPOINT
-        actor.send({ type: "CHECKPOINT" });
-        return { content: [{ type: "text", text: bannerText() }], details: undefined };
+      const designing = phase === "DESIGN";
+      if (!ctx.hasUI) throw new Error("No one can confirm here; stay where you are.");
+      const proposing = phase === "PROPOSE";
+      const confirmed = await ctx.ui.confirm(
+        designing
+          ? "Build this plan?"
+          : proposing
+            ? "Start the agreed refinement?"
+            : context().refining
+              ? "Resume refining?"
+              : "Resume building?",
+        `You said: "${lastUserText()}"\n\nAgent's reading: ${params.reason}`,
+        // Wire to the run's abort signal so a queued /continue etc. closes the dialog
+        // instead of leaving waitForIdle blocked on it.
+        { signal: ctx.signal },
+      );
+      if (!confirmed) {
+        const text =
+          "The user did not confirm. Stay where you are; do not propose moving on again unless they ask.";
+        return { content: [{ type: "text", text }], details: undefined };
+      }
+      actor.send({ type: "CONTINUE" });
+      return { content: [{ type: "text", text: bannerText() }], details: undefined };
+    },
+  });
+
+  pi.registerTool({
+    name: "checkpoint",
+    label: "Request checkpoint",
+    description:
+      "In working phases (BUILD, REFINE), request a checkpoint for review. The agent stops and summarizes for the user.",
+    parameters: Type.Object({
+      reason: Type.String({ description: "Why you're requesting a checkpoint" }),
+    }),
+    async execute(_toolCallId, _params) {
+      const snapshot = actor.getSnapshot();
+      const phase = phaseOf(snapshot);
+
+      if (!isWorking(snapshot)) {
+        if (phase === "VIBE" || phase === "IDLE") {
+          throw new Error("No phase to checkpoint from.");
+        }
+        throw new Error(`Cannot checkpoint in ${phase} phase.`);
       }
 
-      throw new Error("Cannot yield from this state.");
+      actor.send({ type: "CHECKPOINT" });
+      return { content: [{ type: "text", text: bannerText() }], details: undefined };
     },
   });
 

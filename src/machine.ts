@@ -29,10 +29,10 @@ In DESIGN and in discussions, work as a thinking partner: capture the user's ide
 questions of feasibility and correctness, and say what you find. Do not produce an execution plan, and do not ask for
 approval, until the user asks for one. In a discussion, do not repeat the summary or proposal whole.
 
-Use yield to hand over based on your current state:
-- In discussion phases (DESIGN, CHECKPOINT-discuss, PROPOSE-discuss): propose moving on. The user confirms.
-- In working phases (BUILD, REFINE): request a checkpoint for review.
-- In review states (CHECKPOINT, PROPOSE before discussion): summarize and wait. Do not call yield.
+Use the \`propose\` and \`checkpoint\` tools based on your current state:
+- \`propose\`: in discussion phases (DESIGN, CHECKPOINT — DISCUSSION, PROPOSE — DISCUSSION), propose moving on. The user confirms.
+- \`checkpoint\`: in working phases (BUILD, REFINE), request a checkpoint for review. You stop and summarize.
+- In review states (CHECKPOINT, PROPOSE before the user responds): summarize and wait. Do not call the \`propose\` tool yet.
 
 In BUILD and REFINE, record decisions you made without user discussion or approval that have real impact on the outcome. This includes architectural choices, implementation approaches, interface designs, and trade-offs. Don't record trivial decisions or ones already discussed with the user. Use record_decision. Summarize them at the next checkpoint.
 
@@ -267,7 +267,7 @@ export function isDiscussing(snapshot: PairSnapshot): boolean {
 }
 
 // When a mutating call hits a read-only phase, the block reason names the phase the agent
-// would land in via yield. DESIGN always targets BUILD; CHECKPOINT targets BUILD or
+// would land in via `propose`. DESIGN always targets BUILD; CHECKPOINT targets BUILD or
 // REFINE depending on whether we're mid-refinement; PROPOSE targets REFINE.
 export function readOnlyTargetPhase(snapshot: PairSnapshot): string | undefined {
   switch (phaseOf(snapshot)) {
@@ -298,20 +298,20 @@ ${effort === "complex" ? "Explore the affected code thoroughly before any plan. 
 Implement the plan.`;
     case "CHECKPOINT":
       if (isDiscussing(snapshot)) return `[PHASE: CHECKPOINT — DISCUSSION]${taskLine}
-Read-only. Discuss the work with the user. Do not edit or write files.`;
+Read-only. Discuss the work with the user. Do not edit or write files. Use the \`propose\` tool to move on.`;
       const recorded = decisions?.length
         ? decisions.map((d) => `- ${d.decision}`).join("\n")
         : "none";
       return `[PHASE: CHECKPOINT]${taskLine}
-Stop. Record any autonomous decisions made during this build that weren't discussed with the user. Then summarize what changed and where, what is verified and how, what is still open. Then wait.
+Stop. Record any autonomous decisions made during this build that weren't discussed with the user. Then summarize what changed and where, what is verified and how, what is still open. Then wait. Do not call the \`propose\` tool until the user responds.
 
 Decisions already recorded:
 ${recorded}`;
     case "PROPOSE":
       if (isDiscussing(snapshot)) return `[PHASE: PROPOSE — DISCUSSION]${taskLine}
-Read-only. Discuss the refinement proposal. Do not edit or write files.`;
+Read-only. Discuss the refinement proposal. Do not edit or write files. Use the \`propose\` tool to move on.`;
       return `[PHASE: PROPOSE]${taskLine}
-Propose, then stop and wait: nothing changes until you and the user agree.`;
+Propose, then stop and wait: nothing changes until you and the user agree. Do not call the \`propose\` tool until the user responds.`;
     case "REFINE":
       return `[PHASE: REFINE]${taskLine}
 Carry out the agreed refinement.`;
