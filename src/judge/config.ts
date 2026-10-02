@@ -6,7 +6,8 @@ import {
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
 import { LlmDecider } from "./llm-decider.ts";
-import { type Decider, RuleDecider } from "./decider.ts";
+import { RuleDecider } from "./rule-decider.ts";
+import type { Decider } from "./decider.ts";
 
 const CONFIG_FILE = "pair-programming.json";
 const JUDGE_ENTRY = "pair-judge";

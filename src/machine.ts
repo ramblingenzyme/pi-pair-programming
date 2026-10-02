@@ -282,7 +282,7 @@ export function readOnlyTargetPhase(snapshot: PairSnapshot): string | undefined 
   }
 }
 
-import type { Decision } from "./decisions.ts";
+import type { Decision } from "./decisions/store.ts";
 
 // Stopping is restated here rather than left to PROTOCOL: tool gating cannot stop the agent talking,
 // and the latest instruction is the one it follows.

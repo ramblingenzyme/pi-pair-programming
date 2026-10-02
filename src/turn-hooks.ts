@@ -5,8 +5,8 @@ import {
   type SessionBoundaryDraft,
   isToolCallEventType,
 } from "@earendil-works/pi-coding-agent";
-import type { Decider } from "./decider.ts";
-import type { DecisionStore } from "./decisions.ts";
+import type { Decider } from "./judge/decider.ts";
+import type { DecisionStore } from "./decisions/store.ts";
 import {
   type PairActor,
   type PairEvent,

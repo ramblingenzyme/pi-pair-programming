@@ -7,8 +7,8 @@ import {
   bannerMessage,
   restorable,
 } from "./machine.ts";
-import type { DecisionStore } from "./decisions.ts";
-import type { TodoStore } from "./todos.ts";
+import type { DecisionStore } from "./decisions/store.ts";
+import type { TodoStore } from "./todos/store.ts";
 
 const STATE_ENTRY = "pair-state";
 

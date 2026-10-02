@@ -1,14 +1,15 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerCommands, registerTools } from "./src/commands.ts";
+import { registerCommands } from "./src/commands.ts";
+import { registerTools } from "./src/tools.ts";
 import { PairActorImpl } from "./src/machine.ts";
-import { TodoStore } from "./src/todos.ts";
-import { DecisionStore } from "./src/decisions.ts";
+import { TodoStore } from "./src/todos/store.ts";
+import { DecisionStore } from "./src/decisions/store.ts";
 import {
   createDecider,
   getJudgeModelOverride,
   getPersistedJudgeModel,
   setJudgeModelOverride,
-} from "./src/judge-config.ts";
+} from "./src/judge/config.ts";
 import { registerSessionHooks, type HookState } from "./src/session-hooks.ts";
 import { registerTurnHooks } from "./src/turn-hooks.ts";
 
@@ -57,5 +58,5 @@ export default function pairProgrammer(pi: ExtensionAPI) {
     getJudgeModelOverride,
     setJudgeModelOverride,
   );
-  registerTools(pi, actor, todos, decisions, () => state.lastUserText);
+  registerTools(pi, actor, decisions, () => state.lastUserText);
 }

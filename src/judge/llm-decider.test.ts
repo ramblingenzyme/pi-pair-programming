@@ -1,5 +1,5 @@
 import { describe, expect, it } from "expect-native";
-import { RuleDecider } from "./decider.ts";
+import { RuleDecider } from "./rule-decider.ts";
 import { type Complete, type JudgeTrace, LlmDecider } from "./llm-decider.ts";
 
 const answering =

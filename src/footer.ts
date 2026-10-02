@@ -7,8 +7,8 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth, type TUI } from "@earendil-works/pi-tui";
 import { type PairActor, type PairSnapshot, isReview, phaseOf } from "./machine.ts";
-import type { DecisionStore } from "./decisions.ts";
-import type { TodoStore } from "./todos.ts";
+import type { DecisionStore } from "./decisions/store.ts";
+import type { TodoStore } from "./todos/store.ts";
 
 /**
  * Compress a path fish-style: abbreviate parent directories to first letter, keep last full.

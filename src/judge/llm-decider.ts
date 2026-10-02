@@ -1,5 +1,5 @@
 import type { CheckpointSignals, Decider, ReviewSignals } from "./decider.ts";
-import type { Effort } from "./rules.ts";
+import type { Effort } from "../rules.ts";
 
 export type Complete = (systemPrompt: string, user: string) => Promise<string>;
 
