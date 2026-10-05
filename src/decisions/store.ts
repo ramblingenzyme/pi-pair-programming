@@ -1,4 +1,5 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+
+import { SessionStore } from "../store/session-store.ts";
 
 export const DECISIONS_ENTRY = "pair-decisions";
 
@@ -15,23 +16,6 @@ export interface Decision {
 
 export interface DecisionState {
   decisions: Decision[];
-}
-
-const empty: DecisionState = { decisions: [] };
-
-/**
- * Reconstruct decision state from the last pair-decisions entry on the current branch.
- * Branch-aware: branching gives the correct state for that point in history.
- */
-export function reconstructState(ctx: ExtensionContext): DecisionState {
-  for (let i = ctx.sessionManager.getBranch().length - 1; i >= 0; i--) {
-    const entry = ctx.sessionManager.getBranch()[i];
-    if (entry.type === "custom" && entry.customType === DECISIONS_ENTRY) {
-      const data = (entry as { data?: DecisionState }).data;
-      if (data) return data;
-    }
-  }
-  return { ...empty, decisions: [] };
 }
 
 export function addDecision(
@@ -85,57 +69,34 @@ export function removeDecision(
  * Manages decision state with session persistence.
  * Reconstructs from session on start, persists after every change.
  */
-export class DecisionStore {
-  private state: DecisionState = { decisions: [] };
-  private pi: ExtensionAPI | undefined;
-
-  load(ctx: ExtensionContext): void {
-    this.state = reconstructState(ctx);
-  }
-
-  attach(pi: ExtensionAPI): void {
-    this.pi = pi;
-  }
-
-  getState(): DecisionState {
-    return this.state;
+export class DecisionStore extends SessionStore<DecisionState> {
+  constructor() {
+    super(DECISIONS_ENTRY, () => ({ decisions: [] }));
   }
 
   add(decision: string, alternatives: string[], maker: DecisionMaker): Decision {
-    const { state, added } = addDecision(this.state, decision, alternatives, maker);
-    this.state = state;
-    this.persist();
+    const { state, added } = addDecision(this.getState(), decision, alternatives, maker);
+    this.setState(state);
     return added;
   }
 
   remove(id: string): Decision | undefined {
-    const { state, removed } = removeDecision(this.state, id);
-    this.state = state;
-    this.persist();
+    const { state, removed } = removeDecision(this.getState(), id);
+    this.setState(state);
     return removed;
   }
 
   toggleAddressed(id: string): Decision | undefined {
-    const { state, toggled } = toggleAddressed(this.state, id);
-    this.state = state;
-    this.persist();
+    const { state, toggled } = toggleAddressed(this.getState(), id);
+    this.setState(state);
     return toggled;
   }
 
-  clear(): void {
-    this.state = { decisions: [] };
-    this.persist();
-  }
-
   count(): number {
-    return this.state.decisions.length;
+    return this.getState().decisions.length;
   }
 
   unaddressedCount(): number {
-    return this.state.decisions.filter((d) => !d.addressed).length;
-  }
-
-  private persist(): void {
-    this.pi?.appendEntry(DECISIONS_ENTRY, this.state);
+    return this.getState().decisions.filter((d) => !d.addressed).length;
   }
 }

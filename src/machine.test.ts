@@ -211,12 +211,12 @@ describe("pairMachine", () => {
     const actor = started();
     actor.send({ type: "TASK", task: "t", effort: "trivial" });
     expect(phase(actor)).toBe("BUILD");
-    actor.send({ type: "VIBE_ON" });
+    actor.send({ type: "TOGGLE_VIBE" });
     expect(phase(actor)).toBe("VIBE");
     expect(isReadOnly(actor.getSnapshot())).toBe(false);
     expect(isWorking(actor.getSnapshot())).toBe(false);
     expect(isDiscussing(actor.getSnapshot())).toBe(false);
-    actor.send({ type: "VIBE_OFF" });
+    actor.send({ type: "TOGGLE_VIBE" });
     expect(phase(actor)).toBe("BUILD");
     expect(isWorking(actor.getSnapshot())).toBe(true);
   });
@@ -226,10 +226,10 @@ describe("pairMachine", () => {
     actor.send({ type: "TASK", task: "t", effort: "standard" });
     expect(phase(actor)).toBe("DESIGN");
     expect(isReadOnly(actor.getSnapshot())).toBe(true);
-    actor.send({ type: "VIBE_ON" });
+    actor.send({ type: "TOGGLE_VIBE" });
     expect(phase(actor)).toBe("VIBE");
     expect(isReadOnly(actor.getSnapshot())).toBe(false);
-    actor.send({ type: "VIBE_OFF" });
+    actor.send({ type: "TOGGLE_VIBE" });
     expect(phase(actor)).toBe("DESIGN");
     expect(isReadOnly(actor.getSnapshot())).toBe(true);
   });
@@ -237,13 +237,13 @@ describe("pairMachine", () => {
   it("restores vibe mode from a persisted snapshot", () => {
     const actor = started();
     actor.send({ type: "TASK", task: "t", effort: "trivial" });
-    actor.send({ type: "VIBE_ON" });
+    actor.send({ type: "TOGGLE_VIBE" });
     const restored = createActor(pairMachine, {
       snapshot: JSON.parse(JSON.stringify(actor.getPersistedSnapshot())),
     });
     restored.start();
     expect(phase(restored)).toBe("VIBE");
-    restored.send({ type: "VIBE_OFF" });
+    restored.send({ type: "TOGGLE_VIBE" });
     expect(phase(restored)).toBe("BUILD");
   });
 });

@@ -136,7 +136,7 @@ export function registerCommands(
       const snapshot = actor.getSnapshot();
       const isVibe = phaseOf(snapshot) === "VIBE";
       await abortRunningTurn(ctx);
-      actor.send({ type: isVibe ? "VIBE_OFF" : "VIBE_ON" });
+      actor.send({ type: "TOGGLE_VIBE" });
       ctx.ui.notify(isVibe ? "Vibe mode off" : "Vibe mode on", "info");
       pi.sendMessage(bannerMessage(actor.getSnapshot()), { triggerTurn: true });
     },

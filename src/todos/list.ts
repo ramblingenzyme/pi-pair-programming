@@ -1,6 +1,16 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, type TUI } from "@earendil-works/pi-tui";
-import { type ListState, normalizeKey } from "../ui/list-state.ts";
+import { normalizeKey } from "../ui/list-state.ts";
+import {
+  type ListState,
+  handleNavigation,
+  enterDeleteMode,
+  cancelDeleteMode,
+  confirmDelete,
+  renderListItem,
+  renderHeader,
+  renderFooter,
+} from "../ui/list-utils.ts";
 import type { TodoStore } from "./store.ts";
 
 export type TodoAction = { action: "select"; text: string } | { action: "add" } | { action: "cancel" };
@@ -35,30 +45,14 @@ export class TodoListComponent {
             this.onDone({ action: "cancel" });
             break;
           case "return": {
-            const selected = state.todos[this.listState.index];
+            const selected = state.todos[this.listState.index!];
             if (selected) {
               this.onDone({ action: "select", text: selected.text });
             }
             break;
           }
-          case "up":
-          case "k":
-            if (this.listState.index > 0) {
-              this.listState = { mode: "focused", index: this.listState.index - 1 };
-              this.cachedLines = undefined;
-              this.tui.requestRender();
-            }
-            break;
-          case "down":
-          case "j":
-            if (this.listState.index < state.todos.length - 1) {
-              this.listState = { mode: "focused", index: this.listState.index + 1 };
-              this.cachedLines = undefined;
-              this.tui.requestRender();
-            }
-            break;
           case " ":
-            this.todos.toggle(this.listState.index);
+            this.todos.toggle(this.listState.index!);
             this.cachedLines = undefined;
             this.tui.requestRender();
             break;
@@ -66,10 +60,19 @@ export class TodoListComponent {
             this.onDone({ action: "add" });
             break;
           case "d":
-            this.listState = { mode: "pendingDelete", index: this.listState.index };
+            this.listState = enterDeleteMode(this.listState);
             this.cachedLines = undefined;
             this.tui.requestRender();
             break;
+          default: {
+            const newState = handleNavigation(key, this.listState, state.todos.length);
+            if (newState) {
+              this.listState = newState;
+              this.cachedLines = undefined;
+              this.tui.requestRender();
+            }
+            break;
+          }
         }
         break;
       }
@@ -89,22 +92,18 @@ export class TodoListComponent {
         switch (key) {
           case "escape":
           case "ctrl+c":
-            this.listState = { mode: "focused", index: this.listState.index };
+            this.listState = cancelDeleteMode(this.listState);
             this.cachedLines = undefined;
             this.tui.requestRender();
             break;
-          case "d":
-            this.todos.remove(this.listState.index);
+          case "d": {
+            this.todos.remove(this.listState.index!);
             const newState = this.todos.getState();
-            if (newState.todos.length === 0) {
-              this.listState = { mode: "empty" };
-            } else {
-              const newIndex = Math.min(this.listState.index, newState.todos.length - 1);
-              this.listState = { mode: "focused", index: newIndex };
-            }
+            this.listState = confirmDelete(this.listState, newState.todos.length);
             this.cachedLines = undefined;
             this.tui.requestRender();
             break;
+          }
         }
         break;
       }
@@ -121,12 +120,7 @@ export class TodoListComponent {
     const state = this.todos.getState();
 
     lines.push("");
-    const title = th.fg("accent", " Todos ");
-    const headerLine =
-      th.fg("borderMuted", "─".repeat(3)) +
-      title +
-      th.fg("borderMuted", "─".repeat(Math.max(0, width - 10)));
-    lines.push(truncateToWidth(headerLine, width));
+    lines.push(renderHeader(th, "Todos", width));
     lines.push("");
 
     if (state.todos.length === 0) {
@@ -139,42 +133,22 @@ export class TodoListComponent {
       lines.push(truncateToWidth(`  ${th.fg("muted", `${done}/${total} completed`)}`, width));
       lines.push("");
 
+      const selectedIndex =
+        this.listState.mode === "focused" || this.listState.mode === "pendingDelete"
+          ? this.listState.index
+          : undefined;
+
       for (const [i, todo] of state.todos.entries()) {
-        const selected =
-          (this.listState.mode === "focused" || this.listState.mode === "pendingDelete") &&
-          i === this.listState.index;
-        const prefix = selected ? th.fg("accent", "▸ ") : "  ";
-        const check = todo.done ? th.fg("success", "✓") : th.fg("dim", "○");
-        const num = th.fg("accent", `#${i + 1}`);
-        const text = todo.done
-          ? th.fg("dim", th.strikethrough(todo.text))
-          : selected
-            ? th.fg("text", todo.text)
-            : th.fg("muted", todo.text);
-        lines.push(truncateToWidth(`${prefix}${check} ${num} ${text}`, width));
+        lines.push(renderListItem(th, i, selectedIndex, todo.done, todo.text, width));
       }
     }
 
     lines.push("");
-    if (this.listState.mode === "pendingDelete") {
-      lines.push(
-        truncateToWidth(
-          `  ${th.fg("warning", "Press d again to confirm deletion · Esc cancel delete")}`,
-          width),
-      );
-    } else if (this.listState.mode === "focused") {
-      lines.push(
-        truncateToWidth(
-          `  ${th.fg("dim", "↑↓ j/k navigate · Enter select · Space toggle · a add · d delete · Esc unselect")}`,
-          width),
-      );
-    } else {
-      lines.push(
-        truncateToWidth(
-          `  ${th.fg("dim", "↑↓ j/k navigate · Enter select · Space toggle · a add · d delete · Esc exit")}`,
-          width),
-      );
-    }
+    const customHelp =
+      this.listState.mode === "focused"
+        ? th.fg("dim", "↑↓ j/k navigate · Enter select · Space toggle · a add · d delete · Esc unselect")
+        : undefined;
+    lines.push(renderFooter(th, this.listState.mode, width, customHelp));
     lines.push("");
 
     this.cachedWidth = width;

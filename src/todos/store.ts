@@ -1,4 +1,5 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+
+import { SessionStore } from "../store/session-store.ts";
 
 export const TODOS_ENTRY = "pair-todos";
 
@@ -9,23 +10,6 @@ export interface Todo {
 
 export interface TodoState {
   todos: Todo[];
-}
-
-const empty: TodoState = { todos: [] };
-
-/**
- * Reconstruct todo state from the last pair-todos entry on the current branch.
- * Branch-aware: branching gives the correct state for that point in history.
- */
-export function reconstructState(ctx: ExtensionContext): TodoState {
-  for (let i = ctx.sessionManager.getBranch().length - 1; i >= 0; i--) {
-    const entry = ctx.sessionManager.getBranch()[i];
-    if (entry.type === "custom" && entry.customType === TODOS_ENTRY) {
-      const data = (entry as { data?: TodoState }).data;
-      if (data) return data;
-    }
-  }
-  return { ...empty, todos: [] };
 }
 
 export function addTodo(state: TodoState, text: string): { state: TodoState; added: Todo } {
@@ -59,53 +43,30 @@ export function removeTodo(
  * Manages todo state with session persistence.
  * Reconstructs from session on start, persists after every change.
  */
-export class TodoStore {
-  private state: TodoState = { todos: [] };
-  private pi: ExtensionAPI | undefined;
-
-  load(ctx: ExtensionContext): void {
-    this.state = reconstructState(ctx);
-  }
-
-  attach(pi: ExtensionAPI): void {
-    this.pi = pi;
-  }
-
-  getState(): TodoState {
-    return this.state;
+export class TodoStore extends SessionStore<TodoState> {
+  constructor() {
+    super(TODOS_ENTRY, () => ({ todos: [] }));
   }
 
   add(text: string): Todo {
-    const { state, added } = addTodo(this.state, text);
-    this.state = state;
-    this.persist();
+    const { state, added } = addTodo(this.getState(), text);
+    this.setState(state);
     return added;
   }
 
   toggle(index: number): Todo | undefined {
-    const { state, toggled } = toggleTodo(this.state, index);
-    this.state = state;
-    this.persist();
+    const { state, toggled } = toggleTodo(this.getState(), index);
+    this.setState(state);
     return toggled;
   }
 
   remove(index: number): Todo | undefined {
-    const { state, removed } = removeTodo(this.state, index);
-    this.state = state;
-    this.persist();
+    const { state, removed } = removeTodo(this.getState(), index);
+    this.setState(state);
     return removed;
   }
 
-  clear(): void {
-    this.state = { todos: [] };
-    this.persist();
-  }
-
   pendingCount(): number {
-    return this.state.todos.filter((t) => !t.done).length;
-  }
-
-  private persist(): void {
-    this.pi?.appendEntry(TODOS_ENTRY, this.state);
+    return this.getState().todos.filter((t) => !t.done).length;
   }
 }

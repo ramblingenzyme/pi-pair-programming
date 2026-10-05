@@ -62,8 +62,7 @@ export type PairEvent =
   /** From a refine checkpoint, go back to BUILD instead of REFINE. */
   | { type: "RESUME_BUILD" }
   | { type: "DONE" }
-  | { type: "VIBE_ON" }
-  | { type: "VIBE_OFF" };
+  | { type: "TOGGLE_VIBE" };
 
 // Where the agent has handed something over and it is the user's move: a one-time selector, then
 // discussion once the user starts talking.
@@ -150,8 +149,8 @@ export const pairMachine = setup({
     mode: {
       initial: "normal",
       states: {
-        normal: { on: { VIBE_ON: "vibe" } },
-        vibe: { on: { VIBE_OFF: "normal" } },
+        normal: { on: { TOGGLE_VIBE: "vibe" } },
+        vibe: { on: { TOGGLE_VIBE: "normal" } },
       },
     },
   },
