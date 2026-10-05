@@ -7,27 +7,44 @@ export type DecisionAction =
   | { action: "select"; decision: Decision; id: string }
   | { action: "cancel" };
 
+export type DecisionFilterMode = "agent" | "user" | "all";
+
 export class DecisionListComponent {
   private decisions: DecisionStore;
   private theme: Theme;
   private tui: TUI;
   private onDone: (result: DecisionAction) => void;
   private listState: ListState;
+  private filterMode: DecisionFilterMode = "agent";
   private cachedWidth?: number;
   private cachedLines?: string[];
+
+  private getFilteredDecisions(): Decision[] {
+    const allDecisions = this.decisions.getState().decisions;
+    if (this.filterMode === "all") return allDecisions;
+    return allDecisions.filter((d) => d.maker === this.filterMode);
+  }
+
+  private cycleFilterMode(): void {
+    this.filterMode = this.filterMode === "agent" ? "user" : this.filterMode === "user" ? "all" : "agent";
+    const newFilteredDecisions = this.getFilteredDecisions();
+    this.listState = newFilteredDecisions.length > 0 ? { mode: "focused", index: 0 } : { mode: "empty" };
+    this.cachedLines = undefined;
+    this.tui.requestRender();
+  }
 
   constructor(decisions: DecisionStore, theme: Theme, tui: TUI, onDone: (result: DecisionAction) => void) {
     this.decisions = decisions;
     this.theme = theme;
     this.tui = tui;
     this.onDone = onDone;
-    const agentDecisions = decisions.getState().decisions.filter((d) => d.maker === "agent");
-    this.listState = agentDecisions.length > 0 ? { mode: "focused", index: 0 } : { mode: "empty" };
+    const filteredDecisions = this.getFilteredDecisions();
+    this.listState = filteredDecisions.length > 0 ? { mode: "focused", index: 0 } : { mode: "empty" };
   }
 
   handleInput(data: string): void {
     const key = normalizeKey(data);
-    const agentDecisions = this.decisions.getState().decisions.filter((d) => d.maker === "agent");
+    const filteredDecisions = this.getFilteredDecisions();
 
     switch (this.listState.mode) {
       case "focused": {
@@ -37,7 +54,7 @@ export class DecisionListComponent {
             this.onDone({ action: "cancel" });
             break;
           case "return": {
-            const selected = agentDecisions[this.listState.index];
+            const selected = filteredDecisions[this.listState.index];
             if (selected) {
               this.onDone({
                 action: "select",
@@ -57,14 +74,14 @@ export class DecisionListComponent {
             break;
           case "down":
           case "j":
-            if (this.listState.index < agentDecisions.length - 1) {
+            if (this.listState.index < filteredDecisions.length - 1) {
               this.listState = { mode: "focused", index: this.listState.index + 1 };
               this.cachedLines = undefined;
               this.tui.requestRender();
             }
             break;
           case " ": {
-            const decision = agentDecisions[this.listState.index];
+            const decision = filteredDecisions[this.listState.index];
             if (decision) {
               this.decisions.toggleAddressed(decision.id);
               this.cachedLines = undefined;
@@ -77,6 +94,9 @@ export class DecisionListComponent {
             this.cachedLines = undefined;
             this.tui.requestRender();
             break;
+          case "tab":
+            this.cycleFilterMode();
+            break;
         }
         break;
       }
@@ -86,6 +106,9 @@ export class DecisionListComponent {
           case "ctrl+c":
             this.onDone({ action: "cancel" });
             return;
+          case "tab":
+            this.cycleFilterMode();
+            break;
         }
         break;
       }
@@ -98,14 +121,14 @@ export class DecisionListComponent {
             this.tui.requestRender();
             break;
           case "d": {
-            const decision = agentDecisions[this.listState.index];
+            const decision = filteredDecisions[this.listState.index];
             if (decision) {
               this.decisions.remove(decision.id);
-              const newAgentDecisions = this.decisions.getState().decisions.filter((d) => d.maker === "agent");
-              if (newAgentDecisions.length === 0) {
+              const newFilteredDecisions = this.getFilteredDecisions();
+              if (newFilteredDecisions.length === 0) {
                 this.listState = { mode: "empty" };
               } else {
-                const newIndex = Math.min(this.listState.index, newAgentDecisions.length - 1);
+                const newIndex = Math.min(this.listState.index, newFilteredDecisions.length - 1);
                 this.listState = { mode: "focused", index: newIndex };
               }
               this.cachedLines = undefined;
@@ -126,10 +149,10 @@ export class DecisionListComponent {
 
     const lines: string[] = [];
     const th = this.theme;
-    const agentDecisions = this.decisions.getState().decisions.filter((d) => d.maker === "agent");
+    const filteredDecisions = this.getFilteredDecisions();
 
     lines.push("");
-    const title = th.fg("accent", " Decisions ");
+    const title = th.fg("accent", ` Decisions (${this.filterMode}) `);
     const headerLine =
       th.fg("borderMuted", "─".repeat(3)) +
       title +
@@ -137,17 +160,17 @@ export class DecisionListComponent {
     lines.push(truncateToWidth(headerLine, width));
     lines.push("");
 
-    if (agentDecisions.length === 0) {
+    if (filteredDecisions.length === 0) {
       lines.push(
         truncateToWidth(`  ${th.fg("dim", "No decisions recorded yet.")}`, width),
       );
     } else {
-      const unaddressed = agentDecisions.filter((d) => !d.addressed).length;
-      const total = agentDecisions.length;
+      const unaddressed = filteredDecisions.filter((d) => !d.addressed).length;
+      const total = filteredDecisions.length;
       lines.push(truncateToWidth(`  ${th.fg("muted", `${unaddressed}/${total} addressed`)}`, width));
       lines.push("");
 
-      for (const [i, decision] of agentDecisions.entries()) {
+      for (const [i, decision] of filteredDecisions.entries()) {
         const selected =
           (this.listState.mode === "focused" || this.listState.mode === "pendingDelete") &&
           i === this.listState.index;
@@ -181,13 +204,13 @@ export class DecisionListComponent {
     } else if (this.listState.mode === "focused") {
       lines.push(
         truncateToWidth(
-          `  ${th.fg("dim", "↑↓ j/k navigate · Enter revisit · Space toggle addressed · d delete · Esc exit")}`,
+          `  ${th.fg("dim", "↑↓ j/k navigate · Enter revisit · Space toggle addressed · d delete · Tab switch view · Esc exit")}`,
           width),
       );
     } else {
       lines.push(
         truncateToWidth(
-          `  ${th.fg("dim", "↑↓ j/k navigate · Enter revisit · Space toggle addressed · d delete · Esc exit")}`,
+          `  ${th.fg("dim", "↑↓ j/k navigate · Enter revisit · Space toggle addressed · d delete · Tab switch view · Esc exit")}`,
           width),
       );
     }

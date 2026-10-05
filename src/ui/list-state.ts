@@ -11,5 +11,6 @@ export function normalizeKey(data: string): string {
   if (matchesKey(data, "return")) return "return";
   if (matchesKey(data, "up")) return "up";
   if (matchesKey(data, "down")) return "down";
+  if (matchesKey(data, "tab")) return "tab";
   return data;
 }
