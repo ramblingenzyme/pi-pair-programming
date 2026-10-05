@@ -100,20 +100,24 @@ pnpm test    # node:test with expect-native
 pnpm check   # tsc
 ```
 
-| File              | Contents                                                                  |
-| ----------------- | ------------------------------------------------------------------------- |
-| `index.ts`        | Entry point: flag registration, extension wiring.                         |
-| `machine.ts`      | The xstate phase machine, snapshot persistence, phase helpers.            |
-| `rules.ts`        | Hard rules (destructive commands, read-only enforcement, thrash limit).   |
-| `commands.ts`     | Slash commands (`/design`, `/continue`, `/refine`, `/done`, `/phase`, `/judge-model`). |
-| `session-hooks.ts`| `session_start` and `session_compact` hook registration.                  |
-| `turn-hooks.ts`   | `input`, `before_agent_start`, `tool_call`, `turn_end`, `agent_before_settle` hook registration. |
-| `decider.ts`      | The `Decider` interface and the keyword-rule implementation.              |
-| `llm-decider.ts`  | The LLM judge.                                                            |
-| `judge-config.ts` | Judge model resolution and session-scoped override persistence.           |
-| `footer.ts`       | Custom footer showing phase, effort, path, model, thinking level, cost, context usage. |
-| `compaction.ts`   | Phase-aware compaction instructions for pi's summarizer.                  |
-| `decisions.ts`    | Autonomous decision recording and branch-aware state reconstruction.      |
-| `todos.ts`        | Todo tracking and branch-aware state reconstruction.                      |
+| File                | Contents                                                                  |
+| ------------------- | ------------------------------------------------------------------------- |
+| `index.ts`          | Entry point: flag registration, extension wiring.                         |
+| `machine.ts`        | The xstate phase machine, snapshot persistence, phase helpers.            |
+| `tools.ts`          | Tool registration (`propose`, `checkpoint`, `record_decision`).           |
+| `commands.ts`       | Slash commands (`/design`, `/continue`, `/refine`, `/done`, `/phase`, `/judge-model`). |
+| `rules.ts`          | Hard rules (destructive commands, read-only enforcement, thrash limit).   |
+| `session-hooks.ts`  | `session_start`, `session_before_compact`, `session_compact` hook registration. |
+| `turn-hooks.ts`     | `input`, `before_agent_start`, `tool_call`, `turn_end`, `agent_before_settle` hook registration. |
+| `src/judge/config.ts` | Judge model resolution and session-scoped override persistence.         |
+| `src/judge/decider.ts` | The `Decider` interface.                                               |
+| `src/judge/llm-decider.ts` | The LLM judge.                                                     |
+| `src/judge/rule-decider.ts` | Keyword-rule implementation.                                       |
+| `footer.ts`         | Custom footer showing phase, effort, path, model, thinking level, cost, context usage. |
+| `compaction.ts`     | Phase-aware compaction instructions for pi's summarizer.                  |
+| `src/decisions/store.ts` | Decision store and persistence.                                      |
+| `src/decisions/list.ts` | Decision list UI component.                                           |
+| `src/todos/store.ts` | Todo store and persistence.                                              |
+| `src/todos/list.ts` | Todo list UI component.                                                   |
 
 The source must stay erasable TypeScript: no enums and no constructor parameter properties. `node --test` runs files through Node's type stripping, and `tsconfig.json` enforces this with `erasableSyntaxOnly`.
