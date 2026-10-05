@@ -189,7 +189,7 @@ export function registerCommands(
           d.alternatives.length > 0
             ? ` Alternatives considered: ${d.alternatives.join(", ")}.`
             : "";
-        const prompt = `Walk me through decision #${result.index + 1}: ${d.decision}.${alts} Explain the reasoning so I can decide whether this still holds.`;
+        const prompt = `Walk me through this decision: ${d.decision}.${alts} Explain the reasoning so I can decide whether this still holds.`;
         pi.sendUserMessage(prompt);
         return;
       }

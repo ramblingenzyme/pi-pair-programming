@@ -100,15 +100,18 @@ export function registerTools(
     name: "record_decision",
     label: "Record decision",
     description:
-      "Record autonomous decisions with real impact on the outcome — decisions you made without user discussion or approval that affect behavior, change the approach, or impact what comes next. Don't record trivial decisions or ones already discussed with the user.",
+      "Record decisions whenever they're made. Specify who made the decision (you or the user).",
     parameters: Type.Object({
       decision: Type.String({ description: "The decision made" }),
       alternatives: Type.Array(Type.String(), {
         description: "Alternatives considered",
       }),
+      maker: Type.Union([Type.Literal("user"), Type.Literal("agent")], {
+        description: "Who made this decision: 'user' or 'agent'",
+      }),
     }),
     async execute(_toolCallId, params) {
-      const added = decisions.add(params.decision, params.alternatives);
+      const added = decisions.add(params.decision, params.alternatives, params.maker);
       const count = decisions.count();
       return {
         content: [

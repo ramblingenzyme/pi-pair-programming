@@ -134,8 +134,10 @@ export function buildFooter(
           left += ` ${theme.fg("dim", "•")} ${theme.fg("accent", `${pendingTodos} todo${pendingTodos === 1 ? "" : "s"}`)}`;
         }
 
-        // Add decision count if there are unaddressed decisions
-        const unaddressedDecisions = decisions.unaddressedCount();
+        // Add decision count if there are unaddressed agent decisions
+        const unaddressedDecisions = decisions.getState().decisions.filter(
+          (d) => d.maker === "agent" && !d.addressed
+        ).length;
         if (unaddressedDecisions > 0) {
           left += ` ${theme.fg("dim", "•")} ${theme.fg("accent", `${unaddressedDecisions} decision${unaddressedDecisions === 1 ? "" : "s"}`)}`;
         }

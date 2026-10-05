@@ -34,9 +34,7 @@ Use the \`propose\` and \`checkpoint\` tools based on your current state:
 - \`checkpoint\`: in working phases (BUILD, REFINE), request a checkpoint for review. You stop and summarize.
 - In review states (CHECKPOINT, PROPOSE before the user responds): summarize and wait. Do not call the \`propose\` tool yet.
 
-In BUILD and REFINE, record decisions you made without user discussion or approval that have real impact on the outcome. This includes architectural choices, implementation approaches, interface designs, and trade-offs. Don't record trivial decisions or ones already discussed with the user. Use record_decision. Summarize them at the next checkpoint.
-
-In VIBE mode, use record_decision for the same kinds of decisions. Mention them at the next stopping point.
+Record decisions whenever they're made. Specify who made each decision (user or agent).
 
 Compression here means semantic compression: removing duplication that already exists in the working code, so each
 piece says only what is unique to it. It is not making code shorter, and not adding abstractions for cases that do
@@ -299,13 +297,14 @@ Implement the plan.`;
     case "CHECKPOINT":
       if (isDiscussing(snapshot)) return `[PHASE: CHECKPOINT — DISCUSSION]${taskLine}
 Read-only. Discuss the work with the user. Do not edit or write files. Use the \`propose\` tool to move on.`;
-      const recorded = decisions?.length
-        ? decisions.map((d) => `- ${d.decision}`).join("\n")
+      const agentDecisions = decisions?.filter((d) => d.maker === "agent") ?? [];
+      const recorded = agentDecisions.length
+        ? agentDecisions.map((d) => `- ${d.decision}`).join("\n")
         : "none";
       return `[PHASE: CHECKPOINT]${taskLine}
-Stop. Record any autonomous decisions made during this build that weren't discussed with the user. Then summarize what changed and where, what is verified and how, what is still open. Then wait. Do not call the \`propose\` tool until the user responds.
+Stop. Summarize what changed and where, what is verified and how, what is still open. Then wait. Do not call the \`propose\` tool until the user responds.
 
-Decisions already recorded:
+Decisions recorded:
 ${recorded}`;
     case "PROPOSE":
       if (isDiscussing(snapshot)) return `[PHASE: PROPOSE — DISCUSSION]${taskLine}

@@ -2,9 +2,13 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 
 export const DECISIONS_ENTRY = "pair-decisions";
 
+export type DecisionMaker = "user" | "agent";
+
 export interface Decision {
+  id: string;
   decision: string;
   alternatives: string[];
+  maker: DecisionMaker;
   timestamp: number;
   addressed: boolean;
 }
@@ -34,10 +38,13 @@ export function addDecision(
   state: DecisionState,
   decision: string,
   alternatives: string[],
+  maker: DecisionMaker,
 ): { state: DecisionState; added: Decision } {
   const newDecision: Decision = {
+    id: crypto.randomUUID(),
     decision,
     alternatives,
+    maker,
     timestamp: Date.now(),
     addressed: false,
   };
@@ -49,12 +56,12 @@ export function addDecision(
 
 export function toggleAddressed(
   state: DecisionState,
-  index: number,
+  id: string,
 ): { state: DecisionState; toggled: Decision | undefined } {
-  const decision = state.decisions[index];
+  const decision = state.decisions.find((d) => d.id === id);
   if (!decision) return { state, toggled: undefined };
-  const updated = state.decisions.map((d, i) =>
-    i === index ? { ...d, addressed: !d.addressed } : d,
+  const updated = state.decisions.map((d) =>
+    d.id === id ? { ...d, addressed: !d.addressed } : d,
   );
   return {
     state: { ...state, decisions: updated },
@@ -64,12 +71,12 @@ export function toggleAddressed(
 
 export function removeDecision(
   state: DecisionState,
-  index: number,
+  id: string,
 ): { state: DecisionState; removed: Decision | undefined } {
-  const decision = state.decisions[index];
+  const decision = state.decisions.find((d) => d.id === id);
   if (!decision) return { state, removed: undefined };
   return {
-    state: { ...state, decisions: state.decisions.filter((_, i) => i !== index) },
+    state: { ...state, decisions: state.decisions.filter((d) => d.id !== id) },
     removed: decision,
   };
 }
@@ -94,22 +101,22 @@ export class DecisionStore {
     return this.state;
   }
 
-  add(decision: string, alternatives: string[]): Decision {
-    const { state, added } = addDecision(this.state, decision, alternatives);
+  add(decision: string, alternatives: string[], maker: DecisionMaker): Decision {
+    const { state, added } = addDecision(this.state, decision, alternatives, maker);
     this.state = state;
     this.persist();
     return added;
   }
 
-  remove(index: number): Decision | undefined {
-    const { state, removed } = removeDecision(this.state, index);
+  remove(id: string): Decision | undefined {
+    const { state, removed } = removeDecision(this.state, id);
     this.state = state;
     this.persist();
     return removed;
   }
 
-  toggleAddressed(index: number): Decision | undefined {
-    const { state, toggled } = toggleAddressed(this.state, index);
+  toggleAddressed(id: string): Decision | undefined {
+    const { state, toggled } = toggleAddressed(this.state, id);
     this.state = state;
     this.persist();
     return toggled;

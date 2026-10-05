@@ -67,7 +67,7 @@ These tools are always present in all phases except IDLE and VIBE:
 
 - **`propose`**: in discussion phases (DESIGN, CHECKPOINT — DISCUSSION, PROPOSE — DISCUSSION), the agent proposes moving on and you confirm with your last message quoted. In review states (CHECKPOINT, PROPOSE before you respond), the agent summarizes and waits.
 - **`checkpoint`**: in working phases (BUILD, REFINE), the agent requests a checkpoint for review when something is worth a look, after a refinement round, or when a refinement fails.
-- **`record_decision`**: in working phases (BUILD, REFINE), the agent records decisions made without user discussion or approval that have real impact on the outcome. Decisions are summarized at the next checkpoint.
+- **`record_decision`**: record decisions with real impact on the outcome whenever they're made, specifying who made each decision (user or agent). Don't record trivial decisions.
 
 ## Flags
 
