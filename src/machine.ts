@@ -34,7 +34,17 @@ Use the \`propose\` and \`checkpoint\` tools based on your current state:
 - \`checkpoint\`: in working phases (BUILD, REFINE), request a checkpoint for review. You stop and summarize.
 - In review states (CHECKPOINT, PROPOSE before the user responds): summarize and wait. Do not call the \`propose\` tool yet.
 
-Record decisions whenever they're made. Specify who made each decision (user or agent).
+Record decisions with real impact on the outcome whenever they're made. Specify who made each decision (user or agent).
+
+Focus on:
+- Architectural choices (structure, patterns, abstractions)
+- Approach decisions (how to solve a problem when multiple ways exist)
+- Tradeoffs accepted (performance vs readability, simplicity vs flexibility)
+- Scope decisions (what to include/exclude from the work)
+
+Don't record trivial choices (naming, obvious implementations, minor refactors).
+
+Record at the point of decision, before implementation begins.
 
 Compression here means semantic compression: removing duplication that already exists in the working code, so each
 piece says only what is unique to it. It is not making code shorter, and not adding abstractions for cases that do
@@ -300,11 +310,15 @@ Read-only. Discuss the work with the user. Do not edit or write files. Use the \
       const recorded = agentDecisions.length
         ? agentDecisions.map((d) => `- ${d.decision}`).join("\n")
         : "none";
+      const hasRecorded = agentDecisions.length > 0;
+      const reflectionPrompt = hasRecorded
+        ? "\nConsider: Were there other significant decisions during this work that should be recorded?"
+        : "\nConsider: Did you make any significant decisions during this work? Use `record_decision` to capture architectural choices, approach decisions, or tradeoffs.";
       return `[PHASE: CHECKPOINT]${taskLine}
 Stop. Summarize what changed and where, what is verified and how, what is still open. Then wait. Do not call the \`propose\` tool until the user responds.
 
 Decisions recorded:
-${recorded}`;
+${recorded}${reflectionPrompt}`;
     case "PROPOSE":
       if (isDiscussing(snapshot)) return `[PHASE: PROPOSE — DISCUSSION]${taskLine}
 Read-only. Discuss the refinement proposal. Do not edit or write files. Use the \`propose\` tool to move on.`;

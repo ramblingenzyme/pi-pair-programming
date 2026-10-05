@@ -100,18 +100,19 @@ export function registerTools(
     name: "record_decision",
     label: "Record decision",
     description:
-      "Record decisions whenever they're made. Specify who made the decision (you or the user).",
+      "Record decisions with real impact on the outcome. Specify who made the decision (you or the user).",
     parameters: Type.Object({
       maker: Type.Union([Type.Literal("user"), Type.Literal("agent")], {
         description: "Who made this decision: 'user' or 'agent'",
       }),
       decision: Type.String({ description: "The decision made" }),
-      alternatives: Type.Array(Type.String(), {
-        description: "Alternatives considered",
-      }),
+      alternatives: Type.Optional(Type.Array(Type.String(), {
+        description: "Alternatives considered (optional)",
+      })),
     }),
     async execute(_toolCallId, params) {
-      const added = decisions.add(params.decision, params.alternatives, params.maker);
+      const alternatives = params.alternatives ?? [];
+      const added = decisions.add(params.decision, alternatives, params.maker);
       const count = decisions.count();
       return {
         content: [
